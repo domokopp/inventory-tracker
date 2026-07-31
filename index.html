@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- BALISES ANTI-CACHE POUR EVITER LES PROBLEMES LORS DU DEVELOPPEMENT -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -40,8 +39,7 @@
             flex-direction: column;
             flex-shrink: 0;
         }
-        .sidebar h1 { font-size: 1.1rem; margin-bottom: 8px; font-weight: 600; color: var(--text-main); }
-        .version-tag { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 32px; }
+        .sidebar h1 { font-size: 1.1rem; margin-bottom: 32px; font-weight: 600; color: var(--text-main); }
         .nav-btn {
             background: none; border: none; color: var(--text-muted);
             text-align: left; padding: 10px 12px; border-radius: 6px; cursor: pointer;
@@ -91,10 +89,14 @@
         .device-header:hover { background-color: var(--surface-hover); }
         .device-name { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 12px; }
         .built-badge { background: #ecfdf5; color: var(--success); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;}
-        .collapse-icon { transition: transform 0.2s; color: var(--text-muted); }
-        .collapse-icon.collapsed { transform: rotate(-90deg); }
+        
+        /* Modification de la flèche : pointe vers la droite par défaut, vers le bas quand déployé */
+        .collapse-icon { transition: transform 0.2s; color: var(--text-muted); transform: rotate(-90deg); }
+        .collapse-icon.expanded { transform: rotate(0deg); }
+        
         .device-body { padding: 0 18px 18px 18px; display: none; }
-        .device-body.expanded { display: block; }
+        /* Ajout de l'espace sous l'en-tête */
+        .device-body.expanded { display: block; padding-top: 16px; }
         
         .hidden { display: none !important; }
         .mt-2 { margin-top: 16px; }
@@ -105,8 +107,9 @@
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000;
         }
+        /* Modale élargie */
         .modal-content {
-            background: var(--surface-color); padding: 24px; border-radius: 10px; width: 90%; max-width: 600px;
+            background: var(--surface-color); padding: 24px; border-radius: 10px; width: 90%; max-width: 850px;
             max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
         }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;}
@@ -121,7 +124,6 @@
 <body>
     <div class="sidebar">
         <h1>Inventory Tracker</h1>
-        <div class="version-tag">v1.2</div>
         <button class="nav-btn active" onclick="showView('devices', this)">Appareils & BOM</button>
         <button class="nav-btn" onclick="showView('inventory', this)">Inventaire</button>
         <button class="nav-btn" onclick="showView('finalBom', this)">BOM Finale & Build</button>
@@ -207,7 +209,7 @@
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     
     <script>
-        console.log("Inventory Tracker script loaded... v1.2");
+        console.log("Inventory Tracker script loaded...");
 
         // --- INIT SUPABASE ---
         const SUPABASE_URL = 'https://yrugmjtuhoszddpiazzo.supabase.co';
@@ -306,8 +308,8 @@
         function toggleCollapse(deviceId) {
             const body = document.getElementById('bom-' + deviceId);
             const icon = document.querySelector('#bom-' + deviceId).parentElement.querySelector('.collapse-icon');
-            body.classList.toggle('expanded');
-            icon.classList.toggle('collapsed');
+            const isExpanded = body.classList.toggle('expanded');
+            icon.classList.toggle('expanded', isExpanded);
         }
 
         function openAddDeviceModal() {
@@ -322,7 +324,7 @@
                 </div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddDevice()">Créer l'appareil</button>`;
-            openModal('Ajouter un appareil', body, footer);
+            openModal("Ajouter un appareil", body, footer);
         }
 
         async function submitAddDevice() {
@@ -350,7 +352,8 @@
                 </div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditDevice(${id})">Sauvegarder</button>`;
-            openModal('Éditer l\'appareil', body, footer);
+            // Correction de l'apostrophe ici : utilisation de guillemets doubles pour la chaîne externe
+            openModal("Éditer l'appareil", body, footer);
         }
 
         async function submitEditDevice(id) {
@@ -459,7 +462,7 @@
                 <div class="form-group"><label>Mouser Part #</label><input type="text" id="m-mouser"></div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddManualBom(${deviceId})">Ajouter</button>`;
-            openModal('Ajouter un composant', body, footer);
+            openModal("Ajouter un composant", body, footer);
         }
 
         async function submitAddManualBom(deviceId) {
@@ -489,7 +492,7 @@
                 <div class="form-group"><label>Mouser Part #</label><input type="text" id="e-mouser" value="${item.mouser || ''}"></div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditBom(${itemId}, ${deviceId})">Sauvegarder</button>`;
-            openModal('Éditer le composant', body, footer);
+            openModal("Éditer le composant", body, footer);
         }
 
         async function submitEditBom(itemId, deviceId) {
@@ -570,7 +573,7 @@
                 <div class="form-group"><label>Mouser Part #</label><input type="text" id="i-mouser"></div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddManualInv()">Ajouter</button>`;
-            openModal('Ajout Manuel Inventaire', body, footer);
+            openModal("Ajout Manuel Inventaire", body, footer);
         }
 
         async function submitAddManualInv() {
@@ -596,7 +599,7 @@
                 <div class="form-group"><label>Mouser Part #</label><input type="text" id="ie-mouser" value="${item.mouser || ''}"></div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditInv(${id})">Sauvegarder</button>`;
-            openModal('Éditer le composant', body, footer);
+            openModal("Éditer le composant", body, footer);
         }
 
         async function submitEditInv(id) {
@@ -621,69 +624,102 @@
             items.forEach(item => {
                 const key = item.value + '|' + item.lcsc + '|' + item.mouser;
                 if(!grouped[key]) {
-                    grouped[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, totalQty: 0, sources: [] };
+                    grouped[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, sources: [] };
                 }
-                grouped[key].totalQty += item.qty;
                 grouped[key].sources.push((item.devices && item.devices.name ? item.devices.name : 'N/A') + ' (' + item.qty + ')');
             });
 
             const components = Object.values(grouped);
+            window.tempBomComponents = components;
+            window.bomModalState = {}; // Suivi des cases cochées et quantités
+            
+            components.forEach((c, i) => {
+                window.bomModalState[i] = { checked: false, qty: 0 };
+            });
 
             const body = `
-                <p class="text-muted" style="margin-bottom:16px;">Sélectionnez les composants à ajouter à l'inventaire et indiquez la quantité à stocker.</p>
+                <div class="form-group">
+                    <input type="text" id="bom-search" placeholder="Rechercher (Valeur, LCSC, Mouser)..." oninput="filterBomModal()" style="width: 100%; margin-bottom: 16px;">
+                </div>
                 <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
-                    <table style="margin-top:0; border:none;">
+                    <table style="width: 100%; margin-top:0; border:none; table-layout: auto;">
                         <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 1;">
-                            <tr><th></th><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Dans les BOMs</th><th>Qté à ajouter</th></tr>
+                            <tr>
+                                <th style="width: 40px;"></th>
+                                <th>Valeur</th>
+                                <th>LCSC</th>
+                                <th>Mouser</th>
+                                <th>Dans les BOMs</th>
+                                <th style="width: 100px;">Qté à ajouter</th>
+                            </tr>
                         </thead>
-                        <tbody>
-                            ${components.map((c, i) => `
-                                <tr>
-                                    <td><input type="checkbox" class="checkbox" onchange="updateSelectionCounter()" data-index="${i}"></td>
-                                    <td>${c.value || '-'}</td>
-                                    <td>${createSupplierLink(c.lcsc, 'lcsc')}</td>
-                                    <td>${createSupplierLink(c.mouser, 'mouser')}</td>
-                                    <td class="text-muted" style="font-size:0.8rem;">${c.sources.join(', ')}</td>
-                                    <td><input type="number" class="qty-input" value="${c.totalQty}" data-qty-index="${i}" disabled></td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
+                        <tbody id="bom-modal-tbody"></tbody>
                     </table>
                 </div>
                 <div class="selection-counter" id="selection-counter">0 composant sélectionné</div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddFromBom()">Ajouter à l'inventaire</button>`;
             
-            window.tempBomComponents = components; 
-            openModal('Ajouter depuis une BOM', body, footer);
+            openModal("Ajouter depuis une BOM", body, footer);
+            renderBomModalTable();
+        }
+
+        function renderBomModalTable() {
+            const query = document.getElementById('bom-search').value.toLowerCase();
+            const tbody = document.getElementById('bom-modal-tbody');
+            tbody.innerHTML = '';
+
+            window.tempBomComponents.forEach((c, i) => {
+                const matchesSearch = !query || 
+                    (c.value && c.value.toLowerCase().includes(query)) || 
+                    (c.lcsc && c.lcsc.toLowerCase().includes(query)) || 
+                    (c.mouser && c.mouser.toLowerCase().includes(query));
+
+                if (matchesSearch) {
+                    const state = window.bomModalState[i];
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><input type="checkbox" class="checkbox" ${state.checked ? 'checked' : ''} onchange="toggleBomModalItem(${i}, this.checked)"></td>
+                        <td>${c.value || '-'}</td>
+                        <td>${createSupplierLink(c.lcsc, 'lcsc')}</td>
+                        <td>${createSupplierLink(c.mouser, 'mouser')}</td>
+                        <td class="text-muted" style="font-size:0.8rem;">${c.sources.join(', ')}</td>
+                        <td><input type="number" class="qty-input" value="${state.qty}" ${!state.checked ? 'disabled' : ''} onchange="updateBomModalQty(${i}, this.value)" style="width: 70px;"></td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+        }
+
+        function filterBomModal() {
+            renderBomModalTable();
+        }
+
+        function toggleBomModalItem(index, isChecked) {
+            window.bomModalState[index].checked = isChecked;
+            updateSelectionCounter();
+            renderBomModalTable(); // Pour activer/désactiver l'input qty
+        }
+
+        function updateBomModalQty(index, qty) {
+            window.bomModalState[index].qty = parseInt(qty) || 0;
         }
 
         function updateSelectionCounter() {
-            const checkboxes = document.querySelectorAll('.modal-content input[type="checkbox"]');
-            const count = Array.from(checkboxes).filter(c => c.checked).length;
+            const count = Object.values(window.bomModalState).filter(s => s.checked).length;
             document.getElementById('selection-counter').innerText = count + ' composant' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
-            
-            checkboxes.forEach(cb => {
-                const index = cb.dataset.index;
-                const qtyInput = document.querySelector('[data-qty-index="' + index + '"]');
-                if(qtyInput) qtyInput.disabled = !cb.checked;
-            });
         }
 
         async function submitAddFromBom() {
-            const checkboxes = document.querySelectorAll('.modal-content input[type="checkbox"]');
             const itemsToProcess = [];
-            
-            checkboxes.forEach(cb => {
-                if(cb.checked) {
-                    const index = cb.dataset.index;
-                    const comp = window.tempBomComponents[index];
-                    const qty = parseInt(document.querySelector('[data-qty-index="' + index + '"]').value) || 0;
-                    itemsToProcess.push({ ...comp, addQty: qty });
+            window.tempBomComponents.forEach((comp, i) => {
+                const state = window.bomModalState[i];
+                if(state.checked && state.qty > 0) {
+                    itemsToProcess.push({ ...comp, addQty: state.qty });
                 }
             });
 
-            if(itemsToProcess.length === 0) return alert("Sélectionnez au moins un composant.");
+            if(itemsToProcess.length === 0) return alert("Sélectionnez au moins un composant avec une quantité supérieure à 0.");
 
             const { data: invItems } = await db.from('inventory').select('*');
             
