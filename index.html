@@ -201,7 +201,7 @@
         </div>
     </div>
 
-    <!-- STRUCTURE DES MODALES (onclick ajouté sur l'overlay pour fermer en cliquant à l'extérieur) -->
+    <!-- STRUCTURE DES MODALES -->
     <div id="modal-overlay" class="modal-overlay hidden" onclick="overlayClick(event)">
         <div class="modal-content">
             <div class="modal-header">
@@ -240,7 +240,7 @@
 
         let currentDevices = [];
         let currentInventory = [];
-        let finalBomData = [];
+        let finalBomData = {}; // Changé en objet pour pouvoir vérifier correctement s'il est vide
         let missingData = []; 
         let activeSubstitutions = []; 
         let isInventoryEditing = false;
@@ -286,7 +286,6 @@
         function closeModal() {
             document.getElementById('modal-overlay').classList.add('hidden');
         }
-        // Ferme la modale si on clique sur l'overlay (le fond sombre)
         function overlayClick(event) {
             if (event.target.id === 'modal-overlay') {
                 closeModal();
@@ -402,11 +401,7 @@
             const bomDiv = document.getElementById('bom-' + deviceId);
             if(!bomEditStates[deviceId]) bomEditStates[deviceId] = false;
 
-            if(data.length === 0) {
-                bomDiv.innerHTML = '<p class="text-muted">Aucun composant.</p>';
-                return;
-            }
-
+            // On construit la barre d'outils en premier, peu importe s'il y a des composants ou non
             let html = `
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <button class="btn btn-secondary" onclick="toggleBomEditMode(${deviceId})" id="bom-edit-btn-${deviceId}">
@@ -418,27 +413,34 @@
                         <button class="btn" onclick="openAddManualBomModal(${deviceId})">+ Composant</button>
                     </div>
                 </div>
-                <table>
-                    <thead><tr><th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th></tr></thead>
-                    <tbody>
             `;
-            for (const item of data) {
+
+            if(data.length === 0) {
+                html += '<p class="text-muted">Aucun composant.</p>';
+            } else {
                 html += `
-                    <tr>
-                        <td>${item.reference || '-'}</td>
-                        <td>${item.value || '-'}</td>
-                        <td>${item.qty}</td>
-                        <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
-                        <td>${createSupplierLink(item.mouser, 'mouser')}</td>
-                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
-                        <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
-                            <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
-                            <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
-                        </td>
-                    </tr>
+                    <table>
+                        <thead><tr><th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th></tr></thead>
+                        <tbody>
                 `;
+                for (const item of data) {
+                    html += `
+                        <tr>
+                            <td>${item.reference || '-'}</td>
+                            <td>${item.value || '-'}</td>
+                            <td>${item.qty}</td>
+                            <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
+                            <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                            <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
+                            <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
+                                <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
+                                <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
+                            </td>
+                        </tr>
+                    `;
+                }
+                html += `</tbody></table>`;
             }
-            html += `</tbody></table>`;
             bomDiv.innerHTML = html;
         }
 
@@ -896,7 +898,7 @@
 
             if(!hasSelection) return alert("Entrez une quantité supérieure à 0 pour au moins un appareil.");
 
-            finalBomData = [];
+            finalBomData = {};
             for (const devId in quantities) {
                 const qtyToBuild = quantities[devId];
                 const { data: items } = await db.from('bom_items').select('*').eq('device_id', devId).eq('excluded', false);
@@ -1065,7 +1067,7 @@
         }
 
         function exportCsv() {
-            if(finalBomData.length === 0) return alert("Générez d'abord la BOM.");
+            if(Object.keys(finalBomData).length === 0) return alert("Générez d'abord la BOM.");
             
             let csv = "Valeur,Qté,LCSC part number,Mouser part number\n";
             for (const item of Object.values(finalBomData)) {
@@ -1084,7 +1086,7 @@
         }
 
         async function buildDevices() {
-            if(finalBomData.length === 0) return alert("Générez d'abord la BOM finale avant de construire.");
+            if(Object.keys(finalBomData).length === 0) return alert("Générez d'abord la BOM finale avant de construire.");
             
             const quantities = {};
             const { data: devices } = await db.from('devices').select('*');
@@ -1148,7 +1150,7 @@
             
             activeSubstitutions = [];
             missingData = [];
-            finalBomData = [];
+            finalBomData = {};
             document.getElementById('final-bom-table-body').innerHTML = '<tr><td colspan="4" class="text-muted" style="text-align:center; padding: 30px;">Cliquez sur "Générer la BOM" pour calculer les composants nécessaires.</td></tr>';
             document.getElementById('missing-components-section').classList.add('hidden');
             loadDevices(); 
