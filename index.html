@@ -131,7 +131,10 @@
         <div id="view-devices">
             <div class="header">
                 <h2>Appareils</h2>
-                <button class="btn" onclick="openAddDeviceModal()">+ Ajouter un appareil</button>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-secondary" onclick="checkBomConflicts()">Analyser les conflits</button>
+                    <button class="btn" onclick="openAddDeviceModal()">+ Ajouter un appareil</button>
+                </div>
             </div>
             <div id="devices-list"></div>
         </div>
@@ -248,6 +251,12 @@
             if (supplier === 'lcsc') url = 'https://www.lcsc.com/search?q=' + partNumber;
             if (supplier === 'mouser') url = 'https://www.mouser.com/c/?q=' + partNumber;
             return '<a href="' + url + '" target="_blank">' + partNumber + '</a>';
+        }
+
+        // Normaliser les valeurs pour éviter les faux conflits (ex: 10µF vs 10uF)
+        function normalizeValue(val) {
+            if (!val) return '';
+            return val.trim().toLowerCase().replace(/µ/g, 'u');
         }
 
         const IconTrash = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
@@ -510,6 +519,80 @@
             loadBomItems(deviceId);
         }
 
+        // --- NOUVELLE FONCTION : ANALYSE DES CONFLITS ---
+        async function checkBomConflicts() {
+            if(!db) return;
+            const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
+            if(error) return console.error(error);
+
+            const byValue = {};
+            items.forEach(item => {
+                const val = normalizeValue(item.value);
+                if(val === '') return; // Ignore les valeurs vides
+
+                if(!byValue[val]) byValue[val] = [];
+                byValue[val].push(item);
+            });
+
+            const conflicts = [];
+            for(const val in byValue) {
+                const itemsWithVal = byValue[val];
+                if(itemsWithVal.length > 1) {
+                    const uniqueParts = {};
+                    itemsWithVal.forEach(item => {
+                        const lcsc = (item.lcsc || '').trim();
+                        const mouser = (item.mouser || '').trim();
+                        const key = lcsc + '|' + mouser;
+                        if(!uniqueParts[key]) {
+                            uniqueParts[key] = { lcsc, mouser, sources: [] };
+                        }
+                        uniqueParts[key].sources.push((item.devices && item.devices.name ? item.devices.name : 'N/A') + ' (' + item.qty + ')');
+                    });
+
+                    const partCount = Object.keys(uniqueParts).length;
+                    if(partCount > 1) {
+                        conflicts.push({
+                            value: itemsWithVal[0].value, // Conserve la casse d'origine pour l'affichage
+                            parts: Object.values(uniqueParts)
+                        });
+                    }
+                }
+            }
+
+            displayConflictModal(conflicts);
+        }
+
+        function displayConflictModal(conflicts) {
+            let bodyHtml = '';
+            if(conflicts.length === 0) {
+                bodyHtml = '<p class="text-muted" style="text-align:center; padding: 20px;">Aucun conflit trouvé. Toutes les références pour une même valeur sont identiques.</p>';
+            } else {
+                bodyHtml = `<p class="text-muted" style="margin-bottom:16px;">${conflicts.length} valeur(s) avec des références (LCSC/Mouser) différentes :</p>`;
+                bodyHtml += '<div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">';
+                bodyHtml += '<table style="margin-top:0; border:none;">';
+                bodyHtml += '<thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 1;"><tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Présent dans</th></tr></thead><tbody>';
+
+                conflicts.forEach(conf => {
+                    conf.parts.forEach((part, index) => {
+                        const valCell = index === 0 ? `<td rowspan="${conf.parts.length}" style="font-weight:600; vertical-align:top; background: var(--surface-hover);">${conf.value}</td>` : '';
+                        bodyHtml += `
+                            <tr>
+                                ${valCell}
+                                <td>${createSupplierLink(part.lcsc, 'lcsc')}</td>
+                                <td>${createSupplierLink(part.mouser, 'mouser')}</td>
+                                <td class="text-muted" style="font-size:0.8rem;">${part.sources.join(', ')}</td>
+                            </tr>
+                        `;
+                    });
+                });
+
+                bodyHtml += '</tbody></table></div>';
+            }
+
+            const footer = `<button class="btn" onclick="closeModal()">Fermer</button>`;
+            openModal("Analyse des conflits", bodyHtml, footer);
+        }
+
         // --- INVENTORY ---
         async function loadInventory() {
             if(!db) return;
@@ -618,7 +701,6 @@
 
             const grouped = {};
             items.forEach(item => {
-                // Utilisation de trim() pour ignorer les espaces involontaires (comme pour l'ESP32)
                 const val = (item.value || '').trim();
                 const lcsc = (item.lcsc || '').trim();
                 const mouser = (item.mouser || '').trim();
@@ -710,7 +792,6 @@
             }
             window.bomModalState[index].qty = q;
             
-            // Cochage automatique si qty > 0
             if (q > 0 && !window.bomModalState[index].checked) {
                 window.bomModalState[index].checked = true;
                 const row = inputElement.closest('tr');
