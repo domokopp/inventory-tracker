@@ -21,6 +21,8 @@
             --success: #10b981;
             --danger: #ef4444;
             --danger-hover: #dc2626;
+            --warning-bg: #fef2f2;
+            --warning-border: #fecaca;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -99,6 +101,7 @@
         .hidden { display: none !important; }
         .mt-2 { margin-top: 16px; }
         .text-muted { color: var(--text-muted); font-size: 0.85rem; }
+        .text-danger { color: var(--danger); font-weight: 500; }
         .actions-cell { width: 80px; text-align: right; }
 
         .modal-overlay {
@@ -116,6 +119,12 @@
         .form-group label { display: block; font-size: 0.8rem; margin-bottom: 6px; color: var(--text-muted); font-weight: 500;}
         .form-group input, .form-group select { width: 100%; }
         .selection-counter { font-size: 0.85rem; color: var(--accent); margin-top: 8px; font-weight: 500; }
+
+        .missing-card {
+            background-color: var(--warning-bg); border: 1px solid var(--warning-border);
+            border-radius: 8px; padding: 16px; margin-top: 16px;
+        }
+        .missing-card h3 { color: var(--danger); font-size: 1rem; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     </style>
 </head>
 <body>
@@ -176,6 +185,8 @@
                 <div id="device-quantities" style="display: flex; flex-wrap: wrap; gap: 15px;"></div>
             </div>
 
+            <div id="missing-components-section" class="hidden"></div>
+
             <div class="mt-2">
                 <h3 style="font-size:1rem; margin-bottom:8px;">Aperçu de la BOM Finale</h3>
                 <table>
@@ -190,8 +201,8 @@
         </div>
     </div>
 
-    <!-- STRUCTURE DES MODALES -->
-    <div id="modal-overlay" class="modal-overlay hidden">
+    <!-- STRUCTURE DES MODALES (onclick ajouté sur l'overlay pour fermer en cliquant à l'extérieur) -->
+    <div id="modal-overlay" class="modal-overlay hidden" onclick="overlayClick(event)">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="modal-title">Titre</h3>
@@ -228,7 +239,10 @@
         }
 
         let currentDevices = [];
+        let currentInventory = [];
         let finalBomData = [];
+        let missingData = []; 
+        let activeSubstitutions = []; 
         let isInventoryEditing = false;
         let bomEditStates = {}; 
 
@@ -253,7 +267,6 @@
             return '<a href="' + url + '" target="_blank">' + partNumber + '</a>';
         }
 
-        // Normaliser les valeurs pour éviter les faux conflits (ex: 10µF vs 10uF)
         function normalizeValue(val) {
             if (!val) return '';
             return val.trim().toLowerCase().replace(/µ/g, 'u');
@@ -272,6 +285,12 @@
         }
         function closeModal() {
             document.getElementById('modal-overlay').classList.add('hidden');
+        }
+        // Ferme la modale si on clique sur l'overlay (le fond sombre)
+        function overlayClick(event) {
+            if (event.target.id === 'modal-overlay') {
+                closeModal();
+            }
         }
 
         // --- DEVICES & BOM ---
@@ -519,7 +538,7 @@
             loadBomItems(deviceId);
         }
 
-        // --- NOUVELLE FONCTION : ANALYSE DES CONFLITS ---
+        // --- ANALYSE DES CONFLITS ---
         async function checkBomConflicts() {
             if(!db) return;
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
@@ -528,7 +547,7 @@
             const byValue = {};
             items.forEach(item => {
                 const val = normalizeValue(item.value);
-                if(val === '') return; // Ignore les valeurs vides
+                if(val === '') return;
 
                 if(!byValue[val]) byValue[val] = [];
                 byValue[val].push(item);
@@ -552,7 +571,7 @@
                     const partCount = Object.keys(uniqueParts).length;
                     if(partCount > 1) {
                         conflicts.push({
-                            value: itemsWithVal[0].value, // Conserve la casse d'origine pour l'affichage
+                            value: itemsWithVal[0].value,
                             parts: Object.values(uniqueParts)
                         });
                     }
@@ -598,6 +617,7 @@
             if(!db) return;
             const { data, error } = await db.from('inventory').select('*').order('value', { ascending: true });
             if(error) return console.error(error);
+            currentInventory = data;
             
             const tbody = document.getElementById('inventory-table-body');
             const actionCol = document.querySelector('.inv-action-col');
@@ -838,7 +858,7 @@
             loadInventory();
         }
 
-        // --- FINAL BOM & BUILD ---
+        // --- FINAL BOM, MISSING & SUBSTITUTIONS ---
         async function loadDeviceQuantities() {
             if(!db) return;
             const { data, error } = await db.from('devices').select('*');
@@ -855,10 +875,14 @@
                     </label>
                 `;
             }
+            document.getElementById('missing-components-section').classList.add('hidden');
         }
 
         async function generateFinalBom() {
             const { data: devices } = await db.from('devices').select('*');
+            const { data: invItems } = await db.from('inventory').select('*');
+            currentInventory = invItems || [];
+
             const quantities = {};
             let hasSelection = false;
 
@@ -877,18 +901,20 @@
                 const qtyToBuild = quantities[devId];
                 const { data: items } = await db.from('bom_items').select('*').eq('device_id', devId).eq('excluded', false);
                 for (const item of items) {
-                    const key = (item.value || '').trim() + '|' + (item.lcsc || '').trim() + '|' + (item.mouser || '').trim();
+                    const val = (item.value || '').trim();
+                    const lcsc = (item.lcsc || '').trim();
+                    const mouser = (item.mouser || '').trim();
+                    const key = val + '|' + lcsc + '|' + mouser;
                     if(!finalBomData[key]) {
-                        finalBomData[key] = { value: (item.value || '').trim(), lcsc: (item.lcsc || '').trim(), mouser: (item.mouser || '').trim(), totalQty: 0 };
+                        finalBomData[key] = { key, value: val, lcsc: lcsc, mouser: mouser, totalQty: 0 };
                     }
                     finalBomData[key].totalQty += item.qty * qtyToBuild;
                 }
             }
-            finalBomData = Object.values(finalBomData);
 
             const tbody = document.getElementById('final-bom-table-body');
             tbody.innerHTML = '';
-            for (const item of finalBomData) {
+            for (const item of Object.values(finalBomData)) {
                 tbody.innerHTML += `
                     <tr>
                         <td>${item.value || '-'}</td>
@@ -898,13 +924,151 @@
                     </tr>
                 `;
             }
+
+            missingData = [];
+            activeSubstitutions = []; 
+
+            for (const key in finalBomData) {
+                const bomItem = finalBomData[key];
+                const invItem = currentInventory.find(i => 
+                    ((i.lcsc || '').trim() === bomItem.lcsc || (!i.lcsc && !bomItem.lcsc)) && 
+                    ((i.mouser || '').trim() === bomItem.mouser || (!i.mouser && !bomItem.mouser))
+                );
+                const invQty = invItem ? invItem.qty : 0;
+                const missingQty = Math.max(0, bomItem.totalQty - invQty);
+                
+                if(missingQty > 0) {
+                    missingData.push({ ...bomItem, missingQty });
+                }
+            }
+
+            renderMissingSection();
+        }
+
+        function renderMissingSection() {
+            const section = document.getElementById('missing-components-section');
+            if(missingData.length === 0) {
+                section.classList.add('hidden');
+                return;
+            }
+
+            let totalMissing = missingData.reduce((sum, item) => sum + item.missingQty, 0);
+            let substitutedCount = activeSubstitutions.reduce((sum, sub) => sum + sub.subQty, 0);
+            let displayMissing = Math.max(0, totalMissing - substitutedCount);
+
+            section.classList.remove('hidden');
+            section.className = 'missing-card';
+            section.innerHTML = `
+                <h3>
+                    <span>Composants manquants à l'inventaire</span>
+                    <span class="text-danger" style="font-size: 0.85rem; font-weight: 500;">Total restant: ${displayMissing}</span>
+                </h3>
+                <table style="margin-top: 0; border: 1px solid var(--warning-border); background: var(--surface-color);">
+                    <thead>
+                        <tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Manquant</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        ${missingData.map(item => {
+                            let substitutedQtyForItem = activeSubstitutions
+                                .filter(sub => sub.originalKey === item.key)
+                                .reduce((sum, sub) => sum + sub.subQty, 0);
+                            let remainingMissing = Math.max(0, item.missingQty - substitutedQtyForItem);
+                            
+                            return `
+                                <tr>
+                                    <td>${item.value || '-'}</td>
+                                    <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
+                                    <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                                    <td class="${remainingMissing > 0 ? 'text-danger' : 'text-muted'}">${remainingMissing} / ${item.missingQty}</td>
+                                    <td>
+                                        <button class="btn btn-secondary" onclick="openSubstitutionModal('${item.key}')">Substituer</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+                <div style="margin-top: 12px;">
+                    <h4 class="text-muted" style="font-size: 0.9rem; margin-bottom: 8px;">Substitutions actives :</h4>
+                    ${activeSubstitutions.length === 0 ? '<p class="text-muted" style="font-size: 0.85rem;">Aucune substitution configurée.</p>' : `
+                        <ul style="list-style: none; padding: 0;">
+                            ${activeSubstitutions.map((sub, index) => `
+                                <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
+                                    <span style="font-size: 0.85rem;">
+                                        <strong>${sub.subQty}x</strong> ${sub.subValue} ${sub.subLcsc ? '(LCSC: '+sub.subLcsc+')' : ''}
+                                        <span class="text-muted">remplace ${sub.originalValue}</span>
+                                    </span>
+                                    <button class="btn btn-danger" onclick="removeSubstitution(${index})">Retirer</button>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    `}
+                </div>
+            `;
+        }
+
+        function openSubstitutionModal(originalKey) {
+            const missingItem = missingData.find(m => m.key === originalKey);
+            if(!missingItem) return;
+
+            let substitutedQtyForItem = activeSubstitutions
+                .filter(sub => sub.originalKey === originalKey)
+                .reduce((sum, sub) => sum + sub.subQty, 0);
+            let remainingMissing = Math.max(0, missingItem.missingQty - substitutedQtyForItem);
+
+            const inventoryOptions = currentInventory.map(inv => 
+                `<option value="${inv.id}">${inv.value || '-'} ${inv.lcsc ? '(LCSC: '+inv.lcsc+')' : ''} ${inv.mouser ? '(Mouser: '+inv.mouser+')' : ''} [Stock: ${inv.qty}]</option>`
+            ).join('');
+
+            const body = `
+                <p class="text-muted" style="margin-bottom: 16px;">Composant manquant : <strong>${missingItem.value}</strong> (LCSC: ${missingItem.lcsc || '-'}, Mouser: ${missingItem.mouser || '-'}).<br>Il reste <strong>${remainingMissing}</strong> à substituer.</p>
+                <div class="form-group">
+                    <label>Choisir un composant de substitution dans l'inventaire</label>
+                    <select id="sub-inv-select">${inventoryOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Quantité à substituer</label>
+                    <input type="number" id="sub-qty" min="1" max="${remainingMissing}" value="${remainingMissing}">
+                </div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="confirmSubstitution('${originalKey}')">Valider la substitution</button>`;
+            openModal("Substitution de composant", body, footer);
+        }
+
+        function confirmSubstitution(originalKey) {
+            const select = document.getElementById('sub-inv-select');
+            const invId = parseInt(select.value);
+            const qty = parseInt(document.getElementById('sub-qty').value) || 0;
+
+            if(qty <= 0) return alert("La quantité doit être supérieure à 0.");
+
+            const invItem = currentInventory.find(i => i.id === invId);
+            const missingItem = missingData.find(m => m.key === originalKey);
+
+            activeSubstitutions.push({
+                originalKey: originalKey,
+                originalValue: missingItem.value,
+                subInvId: invId,
+                subQty: qty,
+                subValue: invItem.value,
+                subLcsc: invItem.lcsc,
+                subMouser: invItem.mouser
+            });
+
+            closeModal();
+            renderMissingSection();
+        }
+
+        function removeSubstitution(index) {
+            activeSubstitutions.splice(index, 1);
+            renderMissingSection();
         }
 
         function exportCsv() {
             if(finalBomData.length === 0) return alert("Générez d'abord la BOM.");
             
-            let csv = "Value,Qty,LCSC part number,Mouser part number\n";
-            for (const item of finalBomData) {
+            let csv = "Valeur,Qté,LCSC part number,Mouser part number\n";
+            for (const item of Object.values(finalBomData)) {
                 csv += '"' + (item.value || '') + '",' + item.totalQty + ',"' + (item.lcsc || '') + '","' + (item.mouser || '') + '"\n';
             }
 
@@ -924,32 +1088,69 @@
             
             const quantities = {};
             const { data: devices } = await db.from('devices').select('*');
-            let confirmMsg = "Confirmer la construction de :\n";
             let hasSelection = false;
 
             for (const dev of devices) {
                 const qty = parseInt(document.getElementById('qty-' + dev.id).value) || 0;
                 if(qty > 0) {
                     quantities[dev.id] = qty;
-                    confirmMsg += '- ' + qty + 'x ' + dev.name + '\n';
                     hasSelection = true;
                 }
             }
 
             if(!hasSelection) return alert("Rien à construire.");
-            if(!confirm(confirmMsg + "\nCela va soustraire les composants de l'inventaire et incrémenter les compteurs.")) return;
 
-            const { error } = await db.rpc('build_devices', { p_quantities: quantities });
-            if(error) {
-                alert("Erreur lors de la mise à jour. Vérifiez la console.");
-                return console.error(error);
+            if(activeSubstitutions.length > 0) {
+                let subMsg = "Confirmer les substitutions suivantes ?\n";
+                activeSubstitutions.forEach(sub => {
+                    subMsg += `- ${sub.subQty}x ${sub.subValue} (LCSC: ${sub.subLcsc || '-'}) remplace ${sub.originalValue}\n`;
+                });
+                if(!confirm(subMsg)) return; 
+            }
+
+            let totalRemainingMissing = 0;
+            for(let item of missingData) {
+                let substituted = activeSubstitutions
+                    .filter(sub => sub.originalKey === item.key)
+                    .reduce((sum, sub) => sum + sub.subQty, 0);
+                totalRemainingMissing += Math.max(0, item.missingQty - substituted);
+            }
+
+            if(totalRemainingMissing > 0) {
+                if(!confirm(`Il manque ${totalRemainingMissing} composants dans l'inventaire. Voulez-vous ignorer et construire quand même ?`)) return; 
+            }
+
+            const { error: rpcError } = await db.rpc('build_devices', { p_quantities: quantities });
+            if(rpcError) {
+                alert("Erreur lors de la construction principale. Vérifiez la console.");
+                return console.error(rpcError);
+            }
+
+            const subsByInvId = {};
+            activeSubstitutions.forEach(sub => {
+                if(!subsByInvId[sub.subInvId]) subsByInvId[sub.subInvId] = 0;
+                subsByInvId[sub.subInvId] += sub.subQty;
+            });
+
+            for(const invId in subsByInvId) {
+                const qtyToDeduct = subsByInvId[invId];
+                const { data: invData } = await db.from('inventory').select('qty').eq('id', invId).single();
+                if(invData) {
+                    const newQty = Math.max(0, invData.qty - qtyToDeduct);
+                    await db.from('inventory').update({ qty: newQty }).eq('id', invId);
+                }
             }
 
             alert("Construction enregistrée ! L'inventaire a été mis à jour.");
             for (const dev of devices) {
                 document.getElementById('qty-' + dev.id).value = 0;
             }
-            generateFinalBom(); 
+            
+            activeSubstitutions = [];
+            missingData = [];
+            finalBomData = [];
+            document.getElementById('final-bom-table-body').innerHTML = '<tr><td colspan="4" class="text-muted" style="text-align:center; padding: 30px;">Cliquez sur "Générer la BOM" pour calculer les composants nécessaires.</td></tr>';
+            document.getElementById('missing-components-section').classList.add('hidden');
             loadDevices(); 
         }
 
