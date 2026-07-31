@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardware BOM & Inventory</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f1115;
+            --surface-color: #1a1d24;
+            --surface-hover: #22262f;
+            --border-color: #2a2f3a;
+            --text-main: #e4e6eb;
+            --text-muted: #9ca3af;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+        }
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background-color: var(--surface-color);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .sidebar h1 { font-size: 1.2rem; margin-bottom: 30px; font-weight: 600; }
+        .nav-btn {
+            background: none; border: none; color: var(--text-muted);
+            text-align: left; padding: 12px; border-radius: 6px; cursor: pointer;
+            margin-bottom: 5px; width: 100%; font-size: 0.95rem; transition: all 0.2s;
+        }
+        .nav-btn:hover { background-color: var(--surface-hover); color: var(--text-main); }
+        .nav-btn.active { background-color: var(--bg-color); color: var(--text-main); font-weight: 500; }
+        
+        /* Main */
+        .main { flex: 1; padding: 40px; overflow-y: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;}
+        .header h2 { font-size: 1.5rem; font-weight: 600; }
+        
+        /* Boutons */
+        .btn {
+            background-color: var(--accent); color: white; border: none;
+            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: 0.2s;
+        }
+        .btn:hover { background-color: var(--accent-hover); }
+        .btn-secondary { background-color: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-main); }
+        .btn-secondary:hover { background-color: var(--surface-hover); }
+        .btn-success { background-color: var(--success); }
+        .btn-danger { background-color: var(--danger); font-size: 0.75rem; padding: 4px 8px; }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; background: var(--surface-color); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { color: var(--text-muted); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-color);}
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background-color: var(--surface-hover); }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        /* Inputs */
+        input[type="text"], input[type="number"], input[type="file"] {
+            background-color: var(--bg-color); border: 1px solid var(--border-color);
+            color: var(--text-main); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 0.9rem;
+        }
+        input:focus { outline: none; border-color: var(--accent); }
+        .qty-input { width: 70px; }
+        .checkbox { width: 16px; height: 16px; cursor: pointer; }
+        
+        /* Device Card */
+        .device-card {
+            background-color: var(--surface-color); border: 1px solid var(--border-color);
+            border-radius: 8px; padding: 20px; margin-bottom: 15px;
+        }
+        .device-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .device-name { font-weight: 600; font-size: 1.1rem; }
+        .built-badge { background: var(--bg-color); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; color: var(--success); margin-left: 10px;}
+        
+        .hidden { display: none; }
+        .mt-2 { margin-top: 20px; }
+        .text-muted { color: var(--text-muted); font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1>⚙️ Hardware BOM</h1>
+        <button class="nav-btn active" onclick="showView('devices')">Appareils & BOM</button>
+        <button class="nav-btn" onclick="showView('inventory')">Inventaire</button>
+        <button class="nav-btn" onclick="showView('finalBom')">BOM Finale & Build</button>
+    </div>
+
+    <div class="main">
+        <!-- VUE APPAREILS -->
+        <div id="view-devices">
+            <div class="header">
+                <h2>Appareils</h2>
+                <div style="display:flex; gap:10px;">
+                    <input type="text" id="newDeviceName" placeholder="Nom du nouvel appareil">
+                    <button class="btn" onclick="addDevice()">+ Ajouter</button>
+                </div>
+            </div>
+            <div id="devices-list"></div>
+        </div>
+
+        <!-- VUE INVENTAIRE -->
+        <div id="view-inventory" class="hidden">
+            <div class="header">
+                <h2>Inventaire des composants</h2>
+                <button class="btn btn-secondary" onclick="addInventoryItem()">+ Ajouter un composant</button>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Value</th><th>LCSC</th><th>Mouser</th><th>Quantité</th><th>Action</th></tr>
+                </thead>
+                <tbody id="inventory-table-body"></tbody>
+            </table>
+        </div>
+
+        <!-- VUE BOM FINALE -->
+        <div id="view-finalBom" class="hidden">
+            <div class="header">
+                <h2>Génération & Construction</h2>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn btn-secondary" onclick="generateFinalBom()">1. Générer la BOM</button>
+                    <button class="btn btn-secondary" onclick="exportCsv()">2. Exporter CSV</button>
+                    <button class="btn btn-success" onclick="buildDevices()">3. Construire (Maj Inventaire)</button>
+                </div>
+            </div>
+            
+            <div class="device-card" style="background: var(--bg-color);">
+                <h3 style="margin-bottom:15px;">Quantité à construire</h3>
+                <div id="device-quantities"></div>
+            </div>
+
+            <div class="mt-2">
+                <h3>Aperçu de la BOM Finale</h3>
+                <table>
+                    <thead>
+                        <tr><th>Value</th><th>Qty Totale</th><th>LCSC</th><th>Mouser</th></tr>
+                    </thead>
+                    <tbody id="final-bom-table-body">
+                        <tr><td colspan="4" class="text-muted" style="text-align:center; padding: 30px;">Cliquez sur "Générer la BOM" pour calculer les composants nécessaires.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- INIT SUPABASE ---
+        const SUPABASE_URL = 'VOTRE_SUPABASE_URL'; // Remplacez par votre URL
+        const SUPABASE_KEY = 'VOTRE_SUPABASE_ANON_KEY'; // Remplacez par votre clé
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let currentDevices = [];
+        let finalBomData = [];
+
+        // --- NAVIGATION ---
+        function showView(viewName) {
+            document.querySelectorAll('.main > div').forEach(v => v.classList.add('hidden'));
+            document.getElementById('view-' + viewName).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if(viewName === 'devices') loadDevices();
+            if(viewName === 'inventory') loadInventory();
+            if(viewName === 'finalBom') loadDeviceQuantities();
+        }
+
+        // --- HELPERS ---
+        function createSupplierLink(partNumber, supplier) {
+            if (!partNumber || partNumber === '-' || partNumber === '') return '-';
+            let url = '';
+            if (supplier === 'lcsc') url = `https://www.lcsc.com/search?q=${partNumber}`;
+            if (supplier === 'mouser') url = `https://www.mouser.com/c/?q=${partNumber}`;
+            return `<a href="${url}" target="_blank">${partNumber}</a>`;
+        }
+
+        // --- DEVICES & BOM ---
+        async function loadDevices() {
+            const { data, error } = await db.from('devices').select('*').order('created_at', { ascending: false });
+            if (error) return console.error(error);
+            currentDevices = data;
+            
+            const container = document.getElementById('devices-list');
+            container.innerHTML = '';
+            
+            if(data.length === 0) {
+                container.innerHTML = '<p class="text-muted">Aucun appareil. Ajoutez-en un pour commencer.</p>';
+                return;
+            }
+
+            for (const device of data) {
+                const card = document.createElement('div');
+                card.className = 'device-card';
+                card.innerHTML = `
+                    <div class="device-header">
+                        <div>
+                            <span class="device-name">${device.name}</span>
+                            <span class="built-badge">Construits: ${device.built_count}</span>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="file" id="csv-${device.id}" accept=".csv" style="display:none;" onchange="importCsv(${device.id}, this.files[0])">
+                            <button class="btn btn-secondary" onclick="document.getElementById('csv-${device.id}').click()">Importer BOM CSV</button>
+                            <button class="btn btn-danger" onclick="deleteDevice(${device.id})">Supprimer</button>
+                        </div>
+                    </div>
+                    <div id="bom-${device.id}"><p class="text-muted">Chargement de la BOM...</p></div>
+                `;
+                container.appendChild(card);
+                loadBomItems(device.id);
+            }
+        }
+
+        async function addDevice() {
+            const nameInput = document.getElementById('newDeviceName');
+            const name = nameInput.value.trim();
+            if(!name) return alert("Entrez un nom");
+            
+            const { error } = await db.from('devices').insert([{ name: name, built_count: 0 }]);
+            if(error) return console.error(error);
+            nameInput.value = '';
+            loadDevices();
+        }
+
+        async function deleteDevice(id) {
+            if(!confirm("Supprimer cet appareil et toute sa BOM ?")) return;
+            const { error } = await db.from('devices').delete().eq('id', id);
+            if(error) return console.error(error);
+            loadDevices();
+        }
+
+        async function loadBomItems(deviceId) {
+            const { data, error } = await db.from('bom_items').select('*').eq('device_id', deviceId).order('id', { ascending: true });
+            if(error) return console.error(error);
+            
+            const bomDiv = document.getElementById(`bom-${deviceId}`);
+            if(data.length === 0) {
+                bomDiv.innerHTML = '<p class="text-muted">Aucun composant. Importez un CSV de KiCAD.</p>';
+                return;
+            }
+
+            let html = `
+                <table>
+                    <thead><tr><th>Réf</th><th>Valeur</th><th>Qty</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th>Actions</th></tr></thead>
+                    <tbody>
+            `;
+            for (const item of data) {
+                html += `
+                    <tr>
+                        <td>${item.reference || '-'}</td>
+                        <td>${item.value || '-'}</td>
+                        <td>${item.qty}</td>
+                        <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
+                        <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this.checked)"></td>
+                        <td><button class="btn btn-danger" onclick="deleteBomItem(${item.id}, ${deviceId})">X</button></td>
+                    </tr>
+                `;
+            }
+            html += `</tbody></table>
+                <div class="mt-2" style="display:flex; gap:10px;">
+                    <input type="text" id="manual-val-${deviceId}" placeholder="Valeur (ex: 10k)">
+                    <input type="number" id="manual-qty-${deviceId}" placeholder="Qty" value="1" class="qty-input">
+                    <input type="text" id="manual-lcsc-${deviceId}" placeholder="LCSC Part #">
+                    <input type="text" id="manual-mouser-${deviceId}" placeholder="Mouser Part #">
+                    <button class="btn btn-secondary" onclick="addManualItem(${deviceId})">+ Ajouter manuellement</button>
+                    <button class="btn btn-success" onclick="addBomToInventory(${deviceId})">Tout envoyer à l'inventaire</button>
+                </div>
+            `;
+            bomDiv.innerHTML = html;
+        }
+
+        async function importCsv(deviceId, file) {
+            if(!file) return;
+            Papa.parse(file, {
+                header: true,
+                complete: async function(results) {
+                    const rows = results.data.map(row => ({
+                        device_id: deviceId,
+                        reference: row['Reference'] || row['Ref'] || '',
+                        qty: parseInt(row['Qty']) || 1,
+                        value: row['Value'] || '',
+                        lcsc: row['LCSC part number'] || row['LCSC'] || '',
+                        mouser: row['Mouser part number'] || row['Mouser'] || '',
+                        excluded: false,
+                        is_manual: false
+                    })).filter(r => r.value !== '' || r.reference !== ''); // Ignore les lignes vides
+
+                    if(rows.length === 0) return alert("Aucune donnée valide trouvée dans le CSV. Vérifiez les colonnes (Reference, Qty, Value, LCSC part number, Mouser part number).");
+
+                    const { error } = await db.from('bom_items').insert(rows);
+                    if(error) {
+                        alert("Erreur lors de l'import. Vérifiez la console.");
+                        return console.error(error);
+                    }
+                    alert(` ${rows.length} composants importés avec succès !`);
+                    loadBomItems(deviceId);
+                }
+            });
+        }
+
+        async function toggleExclude(itemId, isExcluded) {
+            const { error } = await db.from('bom_items').update({ excluded: isExcluded }).eq('id', itemId);
+            if(error) console.error(error);
+        }
+
+        async function addManualItem(deviceId) {
+            const val = document.getElementById(`manual-val-${deviceId}`).value.trim();
+            const qty = parseInt(document.getElementById(`manual-qty-${deviceId}`).value) || 1;
+            const lcsc = document.getElementById(`manual-lcsc-${deviceId}`).value.trim();
+            const mouser = document.getElementById(`manual-mouser-${deviceId}`).value.trim();
+            
+            if(!val && !lcsc && !mouser) return alert("Entrez au moins une valeur ou une réf.");
+
+            const { error } = await db.from('bom_items').insert([{
+                device_id: deviceId, reference: 'MANUAL', qty: qty, value: val, lcsc: lcsc, mouser: mouser, is_manual: true, excluded: false
+            }]);
+            if(error) return console.error(error);
+            loadBomItems(deviceId);
+        }
+
+        async function deleteBomItem(itemId, deviceId) {
+            const { error } = await db.from('bom_items').delete().eq('id', itemId);
+            if(error) return console.error(error);
+            loadBomItems(deviceId);
+        }
+
+        // --- INVENTORY ---
+        async function loadInventory() {
+            const { data, error } = await db.from('inventory').select('*').order('value', { ascending: true });
+            if(error) return console.error(error);
+            
+            const tbody = document.getElementById('inventory-table-body');
+            tbody.innerHTML = '';
+            if(data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-muted" style="text-align:center;">Inventaire vide. Ajoutez des composants depuis une BOM ou manuellement.</td></tr>';
+                return;
+            }
+            for (const item of data) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${item.value || '-'}</td>
+                        <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
+                        <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                        <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
+                        <td><button class="btn btn-danger" onclick="deleteInventoryItem(${item.id})">X</button></td>
+                    </tr>
+                `;
+            }
+        }
+
+        async function addInventoryItem() {
+            const { error } = await db.from('inventory').insert([{ value: 'Nouveau composant', qty: 0, lcsc: '', mouser: '' }]);
+            if(error) return console.error(error);
+            loadInventory();
+        }
+
+        async function updateInventoryQty(id, newQty) {
+            const { error } = await db.from('inventory').update({ qty: parseInt(newQty) }).eq('id', id);
+            if(error) console.error(error);
+        }
+
+        async function deleteInventoryItem(id) {
+            const { error } = await db.from('inventory').delete().eq('id', id);
+            if(error) return console.error(error);
+            loadInventory();
+        }
+
+        // Ajoute les composants d'une BOM spécifique dans l'inventaire (ne crée pas de doublons, additionne si existant)
+        async function addBomToInventory(deviceId) {
+            if(!confirm("Ajouter/Mettre à jour ces composants dans l'inventaire global ?")) return;
+            const { data: bomItems, error } = await db.from('bom_items').select('*').eq('device_id', deviceId).eq('excluded', false);
+            if(error) return console.error(error);
+
+            const { data: invItems } = await db.from('inventory').select('*');
+            
+            for (const item of bomItems) {
+                // Cherche si le composant existe déjà (par LCSC et Mouser)
+                let existing = invItems.find(i => 
+                    (i.lcsc === item.lcsc || (!i.lcsc && !item.lcsc)) && 
+                    (i.mouser === item.mouser || (!i.mouser && !item.mouser))
+                );
+
+                if(existing) {
+                    // Mise à jour (addition)
+                    await db.from('inventory').update({ qty: existing.qty + item.qty }).eq('id', existing.id);
+                } else {
+                    // Création
+                    await db.from('inventory').insert([{ 
+                        value: item.value, 
+                        lcsc: item.lcsc, 
+                        mouser: item.mouser, 
+                        qty: item.qty 
+                    }]);
+                }
+            }
+            alert("Composants ajoutés à l'inventaire !");
+        }
+
+        // --- FINAL BOM & BUILD ---
+        async function loadDeviceQuantities() {
+            const { data, error } = await db.from('devices').select('*');
+            if(error) return console.error(error);
+            
+            const container = document.getElementById('device-quantities');
+            container.innerHTML = '';
+            if(data.length === 0) container.innerHTML = '<p class="text-muted">Aucun appareil.</p>';
+            
+            for (const dev of data) {
+                container.innerHTML += `
+                    <label style="margin-right: 20px; display:inline-flex; align-items:center; gap:10px;">
+                        ${dev.name} <input type="number" class="qty-input" id="qty-${dev.id}" value="0" min="0">
+                    </label>
+                `;
+            }
+        }
+
+        async function generateFinalBom() {
+            const quantities = {};
+            let hasSelection = false;
+            for (const dev of currentDevices) { // Utilise le cache ou recharge
+                const input = document.getElementById(`qty-${dev.id}`);
+                // currentDevices peut être vide si on arrive direct sur cette page, on recharge pour être sûr
+            }
+
+            // Pour être sûr d'avoir les devices
+            const { data: devices } = await db.from('devices').select('*');
+            for (const dev of devices) {
+                const qty = parseInt(document.getElementById(`qty-${dev.id}`).value) || 0;
+                if(qty > 0) {
+                    quantities[dev.id] = qty;
+                    hasSelection = true;
+                }
+            }
+
+            if(!hasSelection) return alert("Entrez une quantité supérieure à 0 pour au moins un appareil.");
+
+            finalBomData = [];
+            for (const [devId, qtyToBuild] of Object.entries(quantities)) {
+                const { data: items } = await db.from('bom_items').select('*').eq('device_id', devId).eq('excluded', false);
+                for (const item of items) {
+                    const key = `${item.value}|${item.lcsc}|${item.mouser}`;
+                    if(!finalBomData[key]) {
+                        finalBomData[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, totalQty: 0 };
+                    }
+                    finalBomData[key].totalQty += item.qty * qtyToBuild;
+                }
+            }
+            finalBomData = Object.values(finalBomData);
+
+            const tbody = document.getElementById('final-bom-table-body');
+            tbody.innerHTML = '';
+            for (const item of finalBomData) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${item.value || '-'}</td>
+                        <td><strong>${item.totalQty}</strong></td>
+                        <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
+                        <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                    </tr>
+                `;
+            }
+        }
+
+        function exportCsv() {
+            if(finalBomData.length === 0) return alert("Générez d'abord la BOM.");
+            
+            let csv = "Value,Qty,LCSC part number,Mouser part number\n";
+            for (const item of finalBomData) {
+                csv += `"${item.value || ''}",${item.totalQty},"${item.lcsc || ''}","${item.mouser || ''}"\n`;
+            }
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "bom_finale.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function buildDevices() {
+            if(finalBomData.length === 0) return alert("Générez d'abord la BOM finale avant de construire.");
+            
+            const quantities = {};
+            const { data: devices } = await db.from('devices').select('*');
+            let confirmMsg = "Confirmer la construction de :\n";
+            let hasSelection = false;
+
+            for (const dev of devices) {
+                const qty = parseInt(document.getElementById(`qty-${dev.id}`).value) || 0;
+                if(qty > 0) {
+                    quantities[dev.id] = qty;
+                    confirmMsg += `- ${qty}x ${dev.name}\n`;
+                    hasSelection = true;
+                }
+            }
+
+            if(!hasSelection) return alert("Rien à construire.");
+            if(!confirm(confirmMsg + "\nCela va soustraire les composants de l'inventaire et incrémenter les compteurs.")) return;
+
+            // Appel de la fonction SQL sécurisée
+            const { error } = await db.rpc('build_devices', { p_quantities: quantities });
+            if(error) {
+                alert("Erreur lors de la mise à jour. Vérifiez la console.");
+                return console.error(error);
+            }
+
+            alert("Construction enregistrée ! L'inventaire a été mis à jour.");
+            // Reset inputs
+            for (const dev of devices) {
+                document.getElementById(`qty-${dev.id}`).value = 0;
+            }
+            generateFinalBom(); // Recalcule la BOM avec les nouvelles quantités (0)
+            loadDevices(); // Met à jour les compteurs "Construits"
+        }
+
+        // Init
+        loadDevices();
+    </script>
+</body>
+</html>
