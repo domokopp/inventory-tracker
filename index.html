@@ -112,9 +112,9 @@
             background: var(--surface-color); padding: 24px; border-radius: 10px; width: 90%; max-width: 850px;
             max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
         }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;}
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 0;}
         .modal-header h3 { font-size: 1.1rem; font-weight: 600; }
-        .modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color); padding-top: 16px;}
+        .modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; padding-top: 0;}
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; font-size: 0.8rem; margin-bottom: 6px; color: var(--text-muted); font-weight: 500;}
         .form-group input, .form-group select { width: 100%; }
@@ -140,8 +140,9 @@
         <div id="view-devices">
             <div class="header">
                 <h2>Appareils</h2>
-                <div style="display:flex; gap:8px;">
+                <div style="display:flex; gap:8px; flex-wrap: wrap;">
                     <button class="btn btn-secondary" onclick="checkBomConflicts()">Analyser les conflits</button>
+                    <button class="btn btn-secondary" onclick="resetBuiltCounts()">Réinitialiser compteurs</button>
                     <button class="btn" onclick="openAddDeviceModal()">+ Ajouter un appareil</button>
                 </div>
             </div>
@@ -158,6 +159,8 @@
                     <button class="btn" onclick="openAddFromBomModal()">+ Depuis une BOM</button>
                 </div>
             </div>
+            <!-- Barre de recherche ajoutée ici -->
+            <input type="text" id="inv-search" placeholder="Rechercher dans l'inventaire (Valeur, LCSC, Mouser)..." oninput="filterInventory()" style="width: 100%; max-width: 500px; margin-bottom: 10px;">
             <table>
                 <thead>
                     <tr>
@@ -294,7 +297,6 @@
             }
         }
 
-        // Système de modale Promise (remplace alert et confirm)
         function showCustomAlert(title, message, okText = "OK") {
             return new Promise((resolve) => {
                 const body = `<div style="padding: 10px 0; color: var(--text-main); font-size: 0.95rem; line-height: 1.5;">${message}</div>`;
@@ -425,6 +427,25 @@
             if(!confirmDelete) return;
             const { error } = await db.from('devices').delete().eq('id', id);
             if(error) return console.error(error);
+            loadDevices();
+        }
+
+        async function resetBuiltCounts() {
+            const confirmReset = await showCustomConfirm(
+                "Réinitialisation des compteurs", 
+                "Voulez-vous vraiment remettre à zéro le compteur de construction de TOUS les appareils ?",
+                "Réinitialiser",
+                "Annuler"
+            );
+            if(!confirmReset) return;
+
+            const { error } = await db.from('devices').update({ built_count: 0 }).gt('id', 0);
+            if(error) {
+                await showCustomAlert("Erreur", "Une erreur est survenue lors de la réinitialisation.");
+                return console.error(error);
+            }
+
+            await showCustomAlert("Succès", "Tous les compteurs ont été réinitialisés à 0.");
             loadDevices();
         }
 
@@ -683,6 +704,28 @@
                     </tr>
                 `;
             }
+            // Appliquer le filtre actuel au cas où on rechargerait l'inventaire
+            filterInventory();
+        }
+
+        // --- NOUVELLE FONCTION : FILTRER L'INVENTAIRE ---
+        function filterInventory() {
+            const query = document.getElementById('inv-search').value.toLowerCase();
+            const rows = document.querySelectorAll('#inventory-table-body tr');
+            rows.forEach(row => {
+                // Si c'est la ligne "Inventaire vide", on ne la cache pas
+                if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 5) return;
+
+                const val = row.cells[0].textContent.toLowerCase();
+                const lcsc = row.cells[1].textContent.toLowerCase();
+                const mouser = row.cells[2].textContent.toLowerCase();
+
+                if (val.includes(query) || lcsc.includes(query) || mouser.includes(query)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
         }
 
         function toggleInventoryEditMode() {
