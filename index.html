@@ -3,21 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware BOM & Inventory</title>
+    <title>Inventory Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
         :root {
-            --bg-color: #0f1115;
-            --surface-color: #1a1d24;
-            --surface-hover: #22262f;
-            --border-color: #2a2f3a;
-            --text-main: #e4e6eb;
-            --text-muted: #9ca3af;
+            --bg-color: #f8f9fa;
+            --surface-color: #ffffff;
+            --surface-hover: #f1f5f9;
+            --border-color: #e2e8f0;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
             --accent: #3b82f6;
             --accent-hover: #2563eb;
             --success: #10b981;
             --danger: #ef4444;
+            --danger-hover: #dc2626;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -29,74 +30,100 @@
         }
         /* Sidebar */
         .sidebar {
-            width: 260px;
+            width: 240px;
             background-color: var(--surface-color);
             border-right: 1px solid var(--border-color);
-            padding: 20px;
+            padding: 24px 16px;
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
         }
-        .sidebar h1 { font-size: 1.2rem; margin-bottom: 30px; font-weight: 600; }
+        .sidebar h1 { font-size: 1.1rem; margin-bottom: 32px; font-weight: 600; color: var(--text-main); }
         .nav-btn {
             background: none; border: none; color: var(--text-muted);
-            text-align: left; padding: 12px; border-radius: 6px; cursor: pointer;
-            margin-bottom: 5px; width: 100%; font-size: 0.95rem; transition: all 0.2s;
+            text-align: left; padding: 10px 12px; border-radius: 6px; cursor: pointer;
+            margin-bottom: 4px; width: 100%; font-size: 0.9rem; transition: all 0.2s; font-weight: 500;
         }
         .nav-btn:hover { background-color: var(--surface-hover); color: var(--text-main); }
-        .nav-btn.active { background-color: var(--bg-color); color: var(--text-main); font-weight: 500; }
+        .nav-btn.active { background-color: #eff6ff; color: var(--accent); }
         
         /* Main */
         .main { flex: 1; padding: 40px; overflow-y: auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;}
-        .header h2 { font-size: 1.5rem; font-weight: 600; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px;}
+        .header h2 { font-size: 1.4rem; font-weight: 600; }
         
         /* Boutons */
         .btn {
             background-color: var(--accent); color: white; border: none;
-            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: 0.2s;
+            padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: 0.2s;
         }
         .btn:hover { background-color: var(--accent-hover); }
         .btn-secondary { background-color: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-main); }
         .btn-secondary:hover { background-color: var(--surface-hover); }
         .btn-success { background-color: var(--success); }
-        .btn-danger { background-color: var(--danger); font-size: 0.75rem; padding: 4px 8px; }
+        .btn-danger { background-color: transparent; color: var(--danger); border: 1px solid transparent; padding: 4px;}
+        .btn-danger:hover { background-color: #fee2e2; }
+        .btn-icon { background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; display: inline-flex; align-items: center; border-radius: 4px;}
+        .btn-icon:hover { color: var(--accent); background-color: var(--surface-hover); }
 
         /* Tables */
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; background: var(--surface-color); border-radius: 8px; overflow: hidden; }
-        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-color); }
-        th { color: var(--text-muted); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-color);}
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.875rem; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { color: var(--text-muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-color);}
         tr:last-child td { border-bottom: none; }
         tr:hover { background-color: var(--surface-hover); }
         a { color: var(--accent); text-decoration: none; }
         a:hover { text-decoration: underline; }
         
         /* Inputs */
-        input[type="text"], input[type="number"], input[type="file"] {
-            background-color: var(--bg-color); border: 1px solid var(--border-color);
-            color: var(--text-main); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 0.9rem;
+        input[type="text"], input[type="number"], input[type="file"], select {
+            background-color: var(--surface-color); border: 1px solid var(--border-color);
+            color: var(--text-main); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 0.85rem;
         }
         input:focus { outline: none; border-color: var(--accent); }
-        .qty-input { width: 70px; }
+        .qty-input { width: 60px; }
         .checkbox { width: 16px; height: 16px; cursor: pointer; }
         
         /* Device Card */
         .device-card {
             background-color: var(--surface-color); border: 1px solid var(--border-color);
-            border-radius: 8px; padding: 20px; margin-bottom: 15px;
+            border-radius: 8px; margin-bottom: 12px; overflow: hidden;
         }
-        .device-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .device-name { font-weight: 600; font-size: 1.1rem; }
-        .built-badge { background: var(--bg-color); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; color: var(--success); margin-left: 10px;}
+        .device-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; cursor: pointer; user-select: none; }
+        .device-header:hover { background-color: var(--surface-hover); }
+        .device-name { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 12px; }
+        .built-badge { background: #ecfdf5; color: var(--success); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;}
+        .collapse-icon { transition: transform 0.2s; color: var(--text-muted); }
+        .collapse-icon.collapsed { transform: rotate(-90deg); }
+        .device-body { padding: 0 18px 18px 18px; display: none; }
+        .device-body.expanded { display: block; }
         
-        .hidden { display: none; }
-        .mt-2 { margin-top: 20px; }
+        .hidden { display: none !important; }
+        .mt-2 { margin-top: 16px; }
         .text-muted { color: var(--text-muted); font-size: 0.85rem; }
+        .actions-cell { width: 80px; text-align: right; }
+
+        /* Modale */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content {
+            background: var(--surface-color); padding: 24px; border-radius: 10px; width: 90%; max-width: 600px;
+            max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;}
+        .modal-header h3 { font-size: 1.1rem; font-weight: 600; }
+        .modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color); padding-top: 16px;}
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.8rem; margin-bottom: 6px; color: var(--text-muted); font-weight: 500;}
+        .form-group input, .form-group select { width: 100%; }
+        .selection-counter { font-size: 0.85rem; color: var(--accent); margin-top: 8px; font-weight: 500; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h1>⚙️ Hardware BOM</h1>
+        <h1>Inventory Tracker</h1>
         <button class="nav-btn active" onclick="showView('devices')">Appareils & BOM</button>
         <button class="nav-btn" onclick="showView('inventory')">Inventaire</button>
         <button class="nav-btn" onclick="showView('finalBom')">BOM Finale & Build</button>
@@ -107,10 +134,7 @@
         <div id="view-devices">
             <div class="header">
                 <h2>Appareils</h2>
-                <div style="display:flex; gap:10px;">
-                    <input type="text" id="newDeviceName" placeholder="Nom du nouvel appareil">
-                    <button class="btn" onclick="addDevice()">+ Ajouter</button>
-                </div>
+                <button class="btn" onclick="openAddDeviceModal()">+ Ajouter un appareil</button>
             </div>
             <div id="devices-list"></div>
         </div>
@@ -119,11 +143,18 @@
         <div id="view-inventory" class="hidden">
             <div class="header">
                 <h2>Inventaire des composants</h2>
-                <button class="btn btn-secondary" onclick="addInventoryItem()">+ Ajouter un composant</button>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-secondary" onclick="toggleInventoryEditMode()" id="inv-edit-btn">Éditer la liste</button>
+                    <button class="btn btn-secondary" onclick="openAddManualInvModal()">+ Ajout Manuel</button>
+                    <button class="btn" onclick="openAddFromBomModal()">+ Depuis une BOM</button>
+                </div>
             </div>
             <table>
                 <thead>
-                    <tr><th>Value</th><th>LCSC</th><th>Mouser</th><th>Quantité</th><th>Action</th></tr>
+                    <tr>
+                        <th>Value</th><th>LCSC</th><th>Mouser</th><th>Quantité</th>
+                        <th class="actions-cell inv-action-col hidden">Actions</th>
+                    </tr>
                 </thead>
                 <tbody id="inventory-table-body"></tbody>
             </table>
@@ -136,17 +167,17 @@
                 <div style="display:flex; gap:10px;">
                     <button class="btn btn-secondary" onclick="generateFinalBom()">1. Générer la BOM</button>
                     <button class="btn btn-secondary" onclick="exportCsv()">2. Exporter CSV</button>
-                    <button class="btn btn-success" onclick="buildDevices()">3. Construire (Maj Inventaire)</button>
+                    <button class="btn btn-success" onclick="buildDevices()">3. Construire</button>
                 </div>
             </div>
             
-            <div class="device-card" style="background: var(--bg-color);">
-                <h3 style="margin-bottom:15px;">Quantité à construire</h3>
-                <div id="device-quantities"></div>
+            <div class="device-card" style="border: 1px solid var(--border-color); padding: 16px; background: var(--surface-color);">
+                <h3 style="margin-bottom:12px; font-size:1rem;">Quantité à construire</h3>
+                <div id="device-quantities" style="display: flex; flex-wrap: wrap; gap: 15px;"></div>
             </div>
 
             <div class="mt-2">
-                <h3>Aperçu de la BOM Finale</h3>
+                <h3 style="font-size:1rem; margin-bottom:8px;">Aperçu de la BOM Finale</h3>
                 <table>
                     <thead>
                         <tr><th>Value</th><th>Qty Totale</th><th>LCSC</th><th>Mouser</th></tr>
@@ -159,14 +190,30 @@
         </div>
     </div>
 
+    <!-- STRUCTURE DES MODALES -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Titre</h3>
+                <button class="btn-icon" onclick="closeModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div id="modal-body"></div>
+            <div class="modal-footer" id="modal-footer"></div>
+        </div>
+    </div>
+
     <script>
-        // --- INIT  ---
+        // --- INIT SUPABASE ---
         const SUPABASE_URL = 'https://yrugmjtuhoszddpiazzo.supabase.co'; // Remplacez par votre URL
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlydWdtanR1aG9zemRkcGlhenpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDIwNDUsImV4cCI6MjEwMTA3ODA0NX0.eUt47YQKRtip2CwwNSr2BkFspgUl2qkKz200_WpFP_s'; // Remplacez par votre clé
         const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let currentDevices = [];
         let finalBomData = [];
+        let isInventoryEditing = false;
+        let bomEditStates = {}; // Gère l'état d'édition de chaque BOM
 
         // --- NAVIGATION ---
         function showView(viewName) {
@@ -189,6 +236,21 @@
             return `<a href="${url}" target="_blank">${partNumber}</a>`;
         }
 
+        const IconTrash = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+        const IconEdit = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
+        const IconChevron = `<svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+
+        // --- MODALE GÉNÉRIQUE ---
+        function openModal(title, bodyHtml, footerHtml) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-body').innerHTML = bodyHtml;
+            document.getElementById('modal-footer').innerHTML = footerHtml;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+        }
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.add('hidden');
+        }
+
         // --- DEVICES & BOM ---
         async function loadDevices() {
             const { data, error } = await db.from('devices').select('*').order('created_at', { ascending: false });
@@ -207,32 +269,78 @@
                 const card = document.createElement('div');
                 card.className = 'device-card';
                 card.innerHTML = `
-                    <div class="device-header">
-                        <div>
-                            <span class="device-name">${device.name}</span>
+                    <div class="device-header" onclick="toggleCollapse(${device.id})">
+                        <div class="device-name">
+                            ${IconChevron}
+                            ${device.name}
                             <span class="built-badge">Construits: ${device.built_count}</span>
                         </div>
-                        <div style="display:flex; gap:10px; align-items:center;">
-                            <input type="file" id="csv-${device.id}" accept=".csv" style="display:none;" onchange="importCsv(${device.id}, this.files[0])">
-                            <button class="btn btn-secondary" onclick="document.getElementById('csv-${device.id}').click()">Importer BOM CSV</button>
-                            <button class="btn btn-danger" onclick="deleteDevice(${device.id})">Supprimer</button>
+                        <div onclick="event.stopPropagation()" style="display:flex; gap:8px;">
+                            <button class="btn btn-secondary" onclick="openEditDeviceModal(${device.id})">Éditer</button>
+                            <button class="btn btn-danger" onclick="deleteDevice(${device.id})">${IconTrash}</button>
                         </div>
                     </div>
-                    <div id="bom-${device.id}"><p class="text-muted">Chargement de la BOM...</p></div>
+                    <div class="device-body" id="bom-${device.id}"><p class="text-muted">Chargement...</p></div>
                 `;
                 container.appendChild(card);
                 loadBomItems(device.id);
             }
         }
 
-        async function addDevice() {
-            const nameInput = document.getElementById('newDeviceName');
-            const name = nameInput.value.trim();
+        function toggleCollapse(deviceId) {
+            const body = document.getElementById(`bom-${deviceId}`);
+            const icon = document.querySelector(`#bom-${deviceId}`).parentElement.querySelector('.collapse-icon');
+            body.classList.toggle('expanded');
+            icon.classList.toggle('collapsed');
+        }
+
+        function openAddDeviceModal() {
+            const body = `
+                <div class="form-group">
+                    <label>Nom de l'appareil</label>
+                    <input type="text" id="modal-device-name" placeholder="Ex: Carte Mère V2">
+                </div>
+                <div class="form-group">
+                    <label>Importer BOM CSV (Optionnel)</label>
+                    <input type="file" id="modal-device-csv" accept=".csv">
+                </div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddDevice()">Créer l'appareil</button>`;
+            openModal('Ajouter un appareil', body, footer);
+        }
+
+        async function submitAddDevice() {
+            const name = document.getElementById('modal-device-name').value.trim();
+            const fileInput = document.getElementById('modal-device-csv');
             if(!name) return alert("Entrez un nom");
+
+            const { data: newDevice, error: errDev } = await db.from('devices').insert([{ name: name, built_count: 0 }]).select();
+            if(errDev) return console.error(errDev);
             
-            const { error } = await db.from('devices').insert([{ name: name, built_count: 0 }]);
-            if(error) return console.error(error);
-            nameInput.value = '';
+            if(fileInput.files[0]) {
+                await importCsv(newDevice[0].id, fileInput.files[0]);
+            }
+            closeModal();
+            loadDevices();
+        }
+
+        async function openEditDeviceModal(id) {
+            const device = currentDevices.find(d => d.id === id);
+            const body = `
+                <div class="form-group">
+                    <label>Nom de l'appareil</label>
+                    <input type="text" id="modal-edit-device-name" value="${device.name}">
+                </div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditDevice(${id})">Sauvegarder</button>`;
+            openModal('Éditer l'appareil', body, footer);
+        }
+
+        async function submitEditDevice(id) {
+            const name = document.getElementById('modal-edit-device-name').value.trim();
+            const { error } = await db.from('devices').update({ name: name }).eq('id', id);
+            if(error) console.error(error);
+            closeModal();
             loadDevices();
         }
 
@@ -248,14 +356,26 @@
             if(error) return console.error(error);
             
             const bomDiv = document.getElementById(`bom-${deviceId}`);
+            if(!bomEditStates[deviceId]) bomEditStates[deviceId] = false;
+
             if(data.length === 0) {
-                bomDiv.innerHTML = '<p class="text-muted">Aucun composant. Importez un CSV de KiCAD.</p>';
+                bomDiv.innerHTML = '<p class="text-muted">Aucun composant.</p>';
                 return;
             }
 
             let html = `
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <button class="btn btn-secondary" onclick="toggleBomEditMode(${deviceId})" id="bom-edit-btn-${deviceId}">
+                        ${bomEditStates[deviceId] ? 'Terminer' : 'Éditer la liste'}
+                    </button>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <input type="file" id="csv-add-${deviceId}" accept=".csv" style="display:none;" onchange="importCsv(${deviceId}, this.files[0])">
+                        <button class="btn btn-secondary" onclick="document.getElementById('csv-add-${deviceId}').click()">Importer CSV</button>
+                        <button class="btn" onclick="openAddManualBomModal(${deviceId})">+ Composant</button>
+                    </div>
+                </div>
                 <table>
-                    <thead><tr><th>Réf</th><th>Valeur</th><th>Qty</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>Réf</th><th>Valeur</th><th>Qty</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th></tr></thead>
                     <tbody>
             `;
             for (const item of data) {
@@ -266,22 +386,21 @@
                         <td>${item.qty}</td>
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
-                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this.checked)"></td>
-                        <td><button class="btn btn-danger" onclick="deleteBomItem(${item.id}, ${deviceId})">X</button></td>
+                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id})"></td>
+                        <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
+                            <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
+                            <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
+                        </td>
                     </tr>
                 `;
             }
-            html += `</tbody></table>
-                <div class="mt-2" style="display:flex; gap:10px;">
-                    <input type="text" id="manual-val-${deviceId}" placeholder="Valeur (ex: 10k)">
-                    <input type="number" id="manual-qty-${deviceId}" placeholder="Qty" value="1" class="qty-input">
-                    <input type="text" id="manual-lcsc-${deviceId}" placeholder="LCSC Part #">
-                    <input type="text" id="manual-mouser-${deviceId}" placeholder="Mouser Part #">
-                    <button class="btn btn-secondary" onclick="addManualItem(${deviceId})">+ Ajouter manuellement</button>
-                    <button class="btn btn-success" onclick="addBomToInventory(${deviceId})">Tout envoyer à l'inventaire</button>
-                </div>
-            `;
+            html += `</tbody></table>`;
             bomDiv.innerHTML = html;
+        }
+
+        function toggleBomEditMode(deviceId) {
+            bomEditStates[deviceId] = !bomEditStates[deviceId];
+            loadBomItems(deviceId);
         }
 
         async function importCsv(deviceId, file) {
@@ -298,38 +417,75 @@
                         mouser: row['Mouser part number'] || row['Mouser'] || '',
                         excluded: false,
                         is_manual: false
-                    })).filter(r => r.value !== '' || r.reference !== ''); // Ignore les lignes vides
+                    })).filter(r => r.value !== '' || r.reference !== '');
 
-                    if(rows.length === 0) return alert("Aucune donnée valide trouvée dans le CSV. Vérifiez les colonnes (Reference, Qty, Value, LCSC part number, Mouser part number).");
-
+                    if(rows.length === 0) return alert("Aucune donnée valide trouvée.");
                     const { error } = await db.from('bom_items').insert(rows);
-                    if(error) {
-                        alert("Erreur lors de l'import. Vérifiez la console.");
-                        return console.error(error);
-                    }
-                    alert(` ${rows.length} composants importés avec succès !`);
+                    if(error) return console.error(error);
+                    alert(`${rows.length} composants importés !`);
                     loadBomItems(deviceId);
                 }
             });
         }
 
-        async function toggleExclude(itemId, isExcluded) {
-            const { error } = await db.from('bom_items').update({ excluded: isExcluded }).eq('id', itemId);
+        async function toggleExclude(itemId) {
+            const checkbox = event.target;
+            const { error } = await db.from('bom_items').update({ excluded: checkbox.checked }).eq('id', itemId);
             if(error) console.error(error);
         }
 
-        async function addManualItem(deviceId) {
-            const val = document.getElementById(`manual-val-${deviceId}`).value.trim();
-            const qty = parseInt(document.getElementById(`manual-qty-${deviceId}`).value) || 1;
-            const lcsc = document.getElementById(`manual-lcsc-${deviceId}`).value.trim();
-            const mouser = document.getElementById(`manual-mouser-${deviceId}`).value.trim();
-            
-            if(!val && !lcsc && !mouser) return alert("Entrez au moins une valeur ou une réf.");
+        function openAddManualBomModal(deviceId) {
+            const body = `
+                <div class="form-group"><label>Réf (Optionnel)</label><input type="text" id="m-ref"></div>
+                <div class="form-group"><label>Valeur</label><input type="text" id="m-val"></div>
+                <div class="form-group"><label>Quantité</label><input type="number" id="m-qty" value="1"></div>
+                <div class="form-group"><label>LCSC Part #</label><input type="text" id="m-lcsc"></div>
+                <div class="form-group"><label>Mouser Part #</label><input type="text" id="m-mouser"></div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddManualBom(${deviceId})">Ajouter</button>`;
+            openModal('Ajouter un composant', body, footer);
+        }
 
+        async function submitAddManualBom(deviceId) {
             const { error } = await db.from('bom_items').insert([{
-                device_id: deviceId, reference: 'MANUAL', qty: qty, value: val, lcsc: lcsc, mouser: mouser, is_manual: true, excluded: false
+                device_id: deviceId,
+                reference: document.getElementById('m-ref').value.trim(),
+                value: document.getElementById('m-val').value.trim(),
+                qty: parseInt(document.getElementById('m-qty').value) || 1,
+                lcsc: document.getElementById('m-lcsc').value.trim(),
+                mouser: document.getElementById('m-mouser').value.trim(),
+                is_manual: true
             }]);
+            if(error) console.error(error);
+            closeModal();
+            loadBomItems(deviceId);
+        }
+
+        async function openEditBomModal(itemId, deviceId) {
+            const { data: item, error } = await db.from('bom_items').select('*').eq('id', itemId).single();
             if(error) return console.error(error);
+
+            const body = `
+                <div class="form-group"><label>Réf</label><input type="text" id="e-ref" value="${item.reference || ''}"></div>
+                <div class="form-group"><label>Valeur</label><input type="text" id="e-val" value="${item.value || ''}"></div>
+                <div class="form-group"><label>Quantité</label><input type="number" id="e-qty" value="${item.qty}"></div>
+                <div class="form-group"><label>LCSC Part #</label><input type="text" id="e-lcsc" value="${item.lcsc || ''}"></div>
+                <div class="form-group"><label>Mouser Part #</label><input type="text" id="e-mouser" value="${item.mouser || ''}"></div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditBom(${itemId}, ${deviceId})">Sauvegarder</button>`;
+            openModal('Éditer le composant', body, footer);
+        }
+
+        async function submitEditBom(itemId, deviceId) {
+            const { error } = await db.from('bom_items').update({
+                reference: document.getElementById('e-ref').value.trim(),
+                value: document.getElementById('e-val').value.trim(),
+                qty: parseInt(document.getElementById('e-qty').value) || 1,
+                lcsc: document.getElementById('e-lcsc').value.trim(),
+                mouser: document.getElementById('e-mouser').value.trim()
+            }).eq('id', itemId);
+            if(error) console.error(error);
+            closeModal();
             loadBomItems(deviceId);
         }
 
@@ -345,9 +501,16 @@
             if(error) return console.error(error);
             
             const tbody = document.getElementById('inventory-table-body');
+            const actionCol = document.querySelector('.inv-action-col');
+            
+            if(isInventoryEditing) actionCol.classList.remove('hidden');
+            else actionCol.classList.add('hidden');
+
+            document.getElementById('inv-edit-btn').innerText = isInventoryEditing ? 'Terminer' : 'Éditer la liste';
+
             tbody.innerHTML = '';
             if(data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-muted" style="text-align:center;">Inventaire vide. Ajoutez des composants depuis une BOM ou manuellement.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-muted" style="text-align:center; padding: 20px;">Inventaire vide.</td></tr>';
                 return;
             }
             for (const item of data) {
@@ -357,15 +520,17 @@
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                         <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
-                        <td><button class="btn btn-danger" onclick="deleteInventoryItem(${item.id})">X</button></td>
+                        <td class="actions-cell ${isInventoryEditing ? '' : 'hidden'}" style="text-align:right;">
+                            <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
+                            <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
+                        </td>
                     </tr>
                 `;
             }
         }
 
-        async function addInventoryItem() {
-            const { error } = await db.from('inventory').insert([{ value: 'Nouveau composant', qty: 0, lcsc: '', mouser: '' }]);
-            if(error) return console.error(error);
+        function toggleInventoryEditMode() {
+            isInventoryEditing = !isInventoryEditing;
             loadInventory();
         }
 
@@ -380,35 +545,149 @@
             loadInventory();
         }
 
-        // Ajoute les composants d'une BOM spécifique dans l'inventaire (ne crée pas de doublons, additionne si existant)
-        async function addBomToInventory(deviceId) {
-            if(!confirm("Ajouter/Mettre à jour ces composants dans l'inventaire global ?")) return;
-            const { data: bomItems, error } = await db.from('bom_items').select('*').eq('device_id', deviceId).eq('excluded', false);
+        function openAddManualInvModal() {
+            const body = `
+                <div class="form-group"><label>Valeur</label><input type="text" id="i-val"></div>
+                <div class="form-group"><label>Quantité</label><input type="number" id="i-qty" value="0"></div>
+                <div class="form-group"><label>LCSC Part #</label><input type="text" id="i-lcsc"></div>
+                <div class="form-group"><label>Mouser Part #</label><input type="text" id="i-mouser"></div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddManualInv()">Ajouter</button>`;
+            openModal('Ajout Manuel Inventaire', body, footer);
+        }
+
+        async function submitAddManualInv() {
+            const { error } = await db.from('inventory').insert([{
+                value: document.getElementById('i-val').value.trim(),
+                qty: parseInt(document.getElementById('i-qty').value) || 0,
+                lcsc: document.getElementById('i-lcsc').value.trim(),
+                mouser: document.getElementById('i-mouser').value.trim()
+            }]);
+            if(error) console.error(error);
+            closeModal();
+            loadInventory();
+        }
+
+        async function openEditInvModal(id) {
+            const { data: item, error } = await db.from('inventory').select('*').eq('id', id).single();
             if(error) return console.error(error);
+
+            const body = `
+                <div class="form-group"><label>Valeur</label><input type="text" id="ie-val" value="${item.value || ''}"></div>
+                <div class="form-group"><label>Quantité</label><input type="number" id="ie-qty" value="${item.qty}"></div>
+                <div class="form-group"><label>LCSC Part #</label><input type="text" id="ie-lcsc" value="${item.lcsc || ''}"></div>
+                <div class="form-group"><label>Mouser Part #</label><input type="text" id="ie-mouser" value="${item.mouser || ''}"></div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditInv(${id})">Sauvegarder</button>`;
+            openModal('Éditer le composant', body, footer);
+        }
+
+        async function submitEditInv(id) {
+            const { error } = await db.from('inventory').update({
+                value: document.getElementById('ie-val').value.trim(),
+                qty: parseInt(document.getElementById('ie-qty').value) || 0,
+                lcsc: document.getElementById('ie-lcsc').value.trim(),
+                mouser: document.getElementById('ie-mouser').value.trim()
+            }).eq('id', id);
+            if(error) console.error(error);
+            closeModal();
+            loadInventory();
+        }
+
+        // --- POPUP: AJOUTER DEPUIS BOM ---
+        async function openAddFromBomModal() {
+            const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('id');
+            if(error) return console.error(error);
+
+            // Grouper par Value + LCSC + Mouser pour éviter les doublons visuels
+            const grouped = {};
+            items.forEach(item => {
+                const key = `${item.value}|${item.lcsc}|${item.mouser}`;
+                if(!grouped[key]) {
+                    grouped[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, totalQty: 0, sources: [] };
+                }
+                grouped[key].totalQty += item.qty;
+                grouped[key].sources.push(`${item.devices?.name || 'N/A'} (${item.qty})`);
+            });
+
+            const components = Object.values(grouped);
+
+            const body = `
+                <p class="text-muted" style="margin-bottom:16px;">Sélectionnez les composants à ajouter à l'inventaire et indiquez la quantité à stocker.</p>
+                <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table style="margin-top:0; border:none;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 1;">
+                            <tr><th></th><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Dans les BOMs</th><th>Qté à ajouter</th></tr>
+                        </thead>
+                        <tbody>
+                            ${components.map((c, i) => `
+                                <tr>
+                                    <td><input type="checkbox" class="checkbox" onchange="updateSelectionCounter()" data-index="${i}"></td>
+                                    <td>${c.value || '-'}</td>
+                                    <td>${createSupplierLink(c.lcsc, 'lcsc')}</td>
+                                    <td>${createSupplierLink(c.mouser, 'mouser')}</td>
+                                    <td class="text-muted" style="font-size:0.8rem;">${c.sources.join(', ')}</td>
+                                    <td><input type="number" class="qty-input" value="${c.totalQty}" data-qty-index="${i}" disabled></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="selection-counter" id="selection-counter">0 composant sélectionné</div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddFromBom()">Ajouter à l'inventaire</button>`;
+            
+            window.tempBomComponents = components; // Stockage temporaire pour la soumission
+            openModal('Ajouter depuis une BOM', body, footer);
+        }
+
+        function updateSelectionCounter() {
+            const checkboxes = document.querySelectorAll('.modal-content input[type="checkbox"]');
+            const count = Array.from(checkboxes).filter(c => c.checked).length;
+            document.getElementById('selection-counter').innerText = `${count} composant${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}`;
+            
+            // Activer/désactiver les inputs de quantité
+            checkboxes.forEach(cb => {
+                const index = cb.dataset.index;
+                const qtyInput = document.querySelector(`[data-qty-index="${index}"]`);
+                qtyInput.disabled = !cb.checked;
+            });
+        }
+
+        async function submitAddFromBom() {
+            const checkboxes = document.querySelectorAll('.modal-content input[type="checkbox"]');
+            const itemsToProcess = [];
+            
+            checkboxes.forEach(cb => {
+                if(cb.checked) {
+                    const index = cb.dataset.index;
+                    const comp = window.tempBomComponents[index];
+                    const qty = parseInt(document.querySelector(`[data-qty-index="${index}"]`).value) || 0;
+                    itemsToProcess.push({ ...comp, addQty: qty });
+                }
+            });
+
+            if(itemsToProcess.length === 0) return alert("Sélectionnez au moins un composant.");
 
             const { data: invItems } = await db.from('inventory').select('*');
             
-            for (const item of bomItems) {
-                // Cherche si le composant existe déjà (par LCSC et Mouser)
+            for (const item of itemsToProcess) {
                 let existing = invItems.find(i => 
                     (i.lcsc === item.lcsc || (!i.lcsc && !item.lcsc)) && 
                     (i.mouser === item.mouser || (!i.mouser && !item.mouser))
                 );
 
                 if(existing) {
-                    // Mise à jour (addition)
-                    await db.from('inventory').update({ qty: existing.qty + item.qty }).eq('id', existing.id);
+                    await db.from('inventory').update({ qty: existing.qty + item.addQty }).eq('id', existing.id);
                 } else {
-                    // Création
                     await db.from('inventory').insert([{ 
-                        value: item.value, 
-                        lcsc: item.lcsc, 
-                        mouser: item.mouser, 
-                        qty: item.qty 
+                        value: item.value, lcsc: item.lcsc, mouser: item.mouser, qty: item.addQty 
                     }]);
                 }
             }
-            alert("Composants ajoutés à l'inventaire !");
+
+            closeModal();
+            loadInventory();
         }
 
         // --- FINAL BOM & BUILD ---
@@ -422,7 +701,7 @@
             
             for (const dev of data) {
                 container.innerHTML += `
-                    <label style="margin-right: 20px; display:inline-flex; align-items:center; gap:10px;">
+                    <label style="display:inline-flex; align-items:center; gap:8px; background: var(--bg-color); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
                         ${dev.name} <input type="number" class="qty-input" id="qty-${dev.id}" value="0" min="0">
                     </label>
                 `;
@@ -430,15 +709,10 @@
         }
 
         async function generateFinalBom() {
+            const { data: devices } = await db.from('devices').select('*');
             const quantities = {};
             let hasSelection = false;
-            for (const dev of currentDevices) { // Utilise le cache ou recharge
-                const input = document.getElementById(`qty-${dev.id}`);
-                // currentDevices peut être vide si on arrive direct sur cette page, on recharge pour être sûr
-            }
 
-            // Pour être sûr d'avoir les devices
-            const { data: devices } = await db.from('devices').select('*');
             for (const dev of devices) {
                 const qty = parseInt(document.getElementById(`qty-${dev.id}`).value) || 0;
                 if(qty > 0) {
@@ -484,7 +758,7 @@
                 csv += `"${item.value || ''}",${item.totalQty},"${item.lcsc || ''}","${item.mouser || ''}"\n`;
             }
 
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
@@ -515,7 +789,6 @@
             if(!hasSelection) return alert("Rien à construire.");
             if(!confirm(confirmMsg + "\nCela va soustraire les composants de l'inventaire et incrémenter les compteurs.")) return;
 
-            // Appel de la fonction SQL sécurisée
             const { error } = await db.rpc('build_devices', { p_quantities: quantities });
             if(error) {
                 alert("Erreur lors de la mise à jour. Vérifiez la console.");
@@ -523,12 +796,11 @@
             }
 
             alert("Construction enregistrée ! L'inventaire a été mis à jour.");
-            // Reset inputs
             for (const dev of devices) {
                 document.getElementById(`qty-${dev.id}`).value = 0;
             }
-            generateFinalBom(); // Recalcule la BOM avec les nouvelles quantités (0)
-            loadDevices(); // Met à jour les compteurs "Construits"
+            generateFinalBom(); 
+            loadDevices(); 
         }
 
         // Init
