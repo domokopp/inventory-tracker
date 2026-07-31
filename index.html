@@ -206,7 +206,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="modal-title">Titre</h3>
-                <button class="btn-icon" onclick="closeModal()">
+                <button class="btn-icon" onclick="handlePromiseModal(false)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
@@ -240,7 +240,7 @@
 
         let currentDevices = [];
         let currentInventory = [];
-        let finalBomData = {}; // Changé en objet pour pouvoir vérifier correctement s'il est vide
+        let finalBomData = {}; 
         let missingData = []; 
         let activeSubstitutions = []; 
         let isInventoryEditing = false;
@@ -276,19 +276,52 @@
         const IconEdit = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
         const IconChevron = '<svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
-        // --- MODALE GÉNÉRIQUE ---
+        // --- MODALES PERSONNALISÉES ---
         function openModal(title, bodyHtml, footerHtml) {
             document.getElementById('modal-title').innerText = title;
             document.getElementById('modal-body').innerHTML = bodyHtml;
             document.getElementById('modal-footer').innerHTML = footerHtml;
             document.getElementById('modal-overlay').classList.remove('hidden');
         }
+        
         function closeModal() {
             document.getElementById('modal-overlay').classList.add('hidden');
         }
+
         function overlayClick(event) {
             if (event.target.id === 'modal-overlay') {
-                closeModal();
+                handlePromiseModal(false);
+            }
+        }
+
+        // Système de modale Promise (remplace alert et confirm)
+        function showCustomAlert(title, message, okText = "OK") {
+            return new Promise((resolve) => {
+                const body = `<div style="padding: 10px 0; color: var(--text-main); font-size: 0.95rem; line-height: 1.5;">${message}</div>`;
+                const footer = `<button class="btn" onclick="handlePromiseModal(true)">${okText}</button>`;
+                window.resolvePromiseModal = resolve;
+                openModal(title, body, footer);
+            });
+        }
+
+        function showCustomConfirm(title, message, confirmText = "Confirmer", cancelText = "Annuler") {
+            return new Promise((resolve) => {
+                const body = `<div style="padding: 10px 0; color: var(--text-main); font-size: 0.95rem; line-height: 1.5;">${message}</div>`;
+                const footer = `
+                    <button class="btn btn-secondary" onclick="handlePromiseModal(false)">${cancelText}</button>
+                    <button class="btn" onclick="handlePromiseModal(true)">${confirmText}</button>
+                `;
+                window.resolvePromiseModal = resolve;
+                openModal(title, body, footer);
+            });
+        }
+
+        function handlePromiseModal(result) {
+            closeModal();
+            if (window.resolvePromiseModal) {
+                const resolve = window.resolvePromiseModal;
+                window.resolvePromiseModal = null;
+                resolve(result);
             }
         }
 
@@ -352,10 +385,10 @@
         }
 
         async function submitAddDevice() {
-            if(!db) return alert("Supabase n'est pas initialisé.");
+            if(!db) return await showCustomAlert("Erreur", "Supabase n'est pas initialisé.");
             const name = document.getElementById('modal-device-name').value.trim();
             const fileInput = document.getElementById('modal-device-csv');
-            if(!name) return alert("Entrez un nom");
+            if(!name) return await showCustomAlert("Erreur", "Entrez un nom");
 
             const { data: newDevice, error: errDev } = await db.from('devices').insert([{ name: name, built_count: 0 }]).select();
             if(errDev) return console.error(errDev);
@@ -388,7 +421,8 @@
         }
 
         async function deleteDevice(id) {
-            if(!confirm("Supprimer cet appareil et toute sa BOM ?")) return;
+            const confirmDelete = await showCustomConfirm("Supprimer l'appareil", "Supprimer cet appareil et toute sa BOM ?", "Supprimer", "Annuler");
+            if(!confirmDelete) return;
             const { error } = await db.from('devices').delete().eq('id', id);
             if(error) return console.error(error);
             loadDevices();
@@ -401,7 +435,6 @@
             const bomDiv = document.getElementById('bom-' + deviceId);
             if(!bomEditStates[deviceId]) bomEditStates[deviceId] = false;
 
-            // On construit la barre d'outils en premier, peu importe s'il y a des composants ou non
             let html = `
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <button class="btn btn-secondary" onclick="toggleBomEditMode(${deviceId})" id="bom-edit-btn-${deviceId}">
@@ -465,10 +498,10 @@
                         is_manual: false
                     })).filter(r => r.value !== '' || r.reference !== '');
 
-                    if(rows.length === 0) return alert("Aucune donnée valide trouvée.");
+                    if(rows.length === 0) return await showCustomAlert("Importation", "Aucune donnée valide trouvée dans le CSV.");
                     const { error } = await db.from('bom_items').insert(rows);
                     if(error) return console.error(error);
-                    alert(rows.length + ' composants importés !');
+                    await showCustomAlert("Importation réussie", rows.length + ' composants importés avec succès !');
                     loadBomItems(deviceId);
                 }
             });
@@ -535,6 +568,8 @@
         }
 
         async function deleteBomItem(itemId, deviceId) {
+            const confirmDelete = await showCustomConfirm("Supprimer le composant", "Voulez-vous vraiment supprimer ce composant de la BOM ?", "Supprimer", "Annuler");
+            if(!confirmDelete) return;
             const { error } = await db.from('bom_items').delete().eq('id', itemId);
             if(error) return console.error(error);
             loadBomItems(deviceId);
@@ -661,6 +696,8 @@
         }
 
         async function deleteInventoryItem(id) {
+            const confirmDelete = await showCustomConfirm("Supprimer le composant", "Voulez-vous vraiment supprimer ce composant de l'inventaire ?", "Supprimer", "Annuler");
+            if(!confirmDelete) return;
             const { error } = await db.from('inventory').delete().eq('id', id);
             if(error) return console.error(error);
             loadInventory();
@@ -837,7 +874,7 @@
                 }
             });
 
-            if(itemsToProcess.length === 0) return alert("Sélectionnez au moins un composant avec une quantité supérieure à 0.");
+            if(itemsToProcess.length === 0) return await showCustomAlert("Ajout à l'inventaire", "Sélectionnez au moins un composant avec une quantité supérieure à 0.");
 
             const { data: invItems } = await db.from('inventory').select('*');
             
@@ -896,7 +933,7 @@
                 }
             }
 
-            if(!hasSelection) return alert("Entrez une quantité supérieure à 0 pour au moins un appareil.");
+            if(!hasSelection) return await showCustomAlert("Génération BOM", "Entrez une quantité supérieure à 0 pour au moins un appareil.");
 
             finalBomData = {};
             for (const devId in quantities) {
@@ -1037,12 +1074,12 @@
             openModal("Substitution de composant", body, footer);
         }
 
-        function confirmSubstitution(originalKey) {
+        async function confirmSubstitution(originalKey) {
             const select = document.getElementById('sub-inv-select');
             const invId = parseInt(select.value);
             const qty = parseInt(document.getElementById('sub-qty').value) || 0;
 
-            if(qty <= 0) return alert("La quantité doit être supérieure à 0.");
+            if(qty <= 0) return await showCustomAlert("Substitution", "La quantité doit être supérieure à 0.");
 
             const invItem = currentInventory.find(i => i.id === invId);
             const missingItem = missingData.find(m => m.key === originalKey);
@@ -1066,8 +1103,8 @@
             renderMissingSection();
         }
 
-        function exportCsv() {
-            if(Object.keys(finalBomData).length === 0) return alert("Générez d'abord la BOM.");
+        async function exportCsv() {
+            if(Object.keys(finalBomData).length === 0) return await showCustomAlert("Exportation", "Générez d'abord la BOM.");
             
             let csv = "Valeur,Qté,LCSC part number,Mouser part number\n";
             for (const item of Object.values(finalBomData)) {
@@ -1086,7 +1123,9 @@
         }
 
         async function buildDevices() {
-            if(Object.keys(finalBomData).length === 0) return alert("Générez d'abord la BOM finale avant de construire.");
+            if(Object.keys(finalBomData).length === 0) {
+                return await showCustomAlert("Construction", "Générez d'abord la BOM finale avant de construire.");
+            }
             
             const quantities = {};
             const { data: devices } = await db.from('devices').select('*');
@@ -1100,14 +1139,15 @@
                 }
             }
 
-            if(!hasSelection) return alert("Rien à construire.");
+            if(!hasSelection) return await showCustomAlert("Construction", "Rien à construire.");
 
             if(activeSubstitutions.length > 0) {
-                let subMsg = "Confirmer les substitutions suivantes ?\n";
+                let subMsg = "Confirmer les substitutions suivantes ?<br><br>";
                 activeSubstitutions.forEach(sub => {
-                    subMsg += `- ${sub.subQty}x ${sub.subValue} (LCSC: ${sub.subLcsc || '-'}) remplace ${sub.originalValue}\n`;
+                    subMsg += `- <strong>${sub.subQty}x</strong> ${sub.subValue} (LCSC: ${sub.subLcsc || '-'}) remplace ${sub.originalValue}<br>`;
                 });
-                if(!confirm(subMsg)) return; 
+                const confirmSubs = await showCustomConfirm("Substitutions", subMsg, "Poursuivre", "Annuler");
+                if(!confirmSubs) return; 
             }
 
             let totalRemainingMissing = 0;
@@ -1119,12 +1159,18 @@
             }
 
             if(totalRemainingMissing > 0) {
-                if(!confirm(`Il manque ${totalRemainingMissing} composants dans l'inventaire. Voulez-vous ignorer et construire quand même ?`)) return; 
+                const confirmMissing = await showCustomConfirm(
+                    "Composants manquants", 
+                    `Il manque <strong>${totalRemainingMissing}</strong> composants dans l'inventaire. Voulez-vous ignorer et construire quand même ?`,
+                    "Ignorer",
+                    "Annuler"
+                );
+                if(!confirmMissing) return; 
             }
 
             const { error: rpcError } = await db.rpc('build_devices', { p_quantities: quantities });
             if(rpcError) {
-                alert("Erreur lors de la construction principale. Vérifiez la console.");
+                await showCustomAlert("Erreur", "Erreur lors de la construction principale. Vérifiez la console.");
                 return console.error(rpcError);
             }
 
@@ -1143,7 +1189,8 @@
                 }
             }
 
-            alert("Construction enregistrée ! L'inventaire a été mis à jour.");
+            await showCustomAlert("Succès", "Construction enregistrée ! L'inventaire a été mis à jour.");
+            
             for (const dev of devices) {
                 document.getElementById('qty-' + dev.id).value = 0;
             }
