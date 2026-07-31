@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
         :root {
             --bg-color: #f8f9fa;
@@ -124,9 +122,9 @@
 <body>
     <div class="sidebar">
         <h1>Inventory Tracker</h1>
-        <button class="nav-btn active" onclick="showView('devices')">Appareils & BOM</button>
-        <button class="nav-btn" onclick="showView('inventory')">Inventaire</button>
-        <button class="nav-btn" onclick="showView('finalBom')">BOM Finale & Build</button>
+        <button class="nav-btn active" onclick="showView('devices', this)">Appareils & BOM</button>
+        <button class="nav-btn" onclick="showView('inventory', this)">Inventaire</button>
+        <button class="nav-btn" onclick="showView('finalBom', this)">BOM Finale & Build</button>
     </div>
 
     <div class="main">
@@ -204,23 +202,40 @@
         </div>
     </div>
 
+    <!-- LIBRAIRIES EXTERNES -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    
     <script>
+        console.log("Inventory Tracker script loaded...");
+
         // --- INIT SUPABASE ---
-        const SUPABASE_URL = 'https://yrugmjtuhoszddpiazzo.supabase.co'; // Remplacez par votre URL
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlydWdtanR1aG9zemRkcGlhenpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDIwNDUsImV4cCI6MjEwMTA3ODA0NX0.eUt47YQKRtip2CwwNSr2BkFspgUl2qkKz200_WpFP_s'; // Remplacez par votre clé
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const SUPABASE_URL = 'https://yrugmjtuhoszddpiazzo.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlydWdtanR1aG9zemRkcGlhenpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MDIwNDUsImV4cCI6MjEwMTA3ODA0NX0.eUt47YQKRtip2CwwNSr2BkFspgUl2qkKz200_WpFP_s';
+        
+        let db;
+        if (window.supabase) {
+            try {
+                db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                console.log("Supabase initialized successfully.");
+            } catch (e) {
+                console.error("Erreur d'initialisation Supabase.", e);
+            }
+        } else {
+            console.error("Librairie Supabase non chargée.");
+        }
 
         let currentDevices = [];
         let finalBomData = [];
         let isInventoryEditing = false;
-        let bomEditStates = {}; // Gère l'état d'édition de chaque BOM
+        let bomEditStates = {}; 
 
         // --- NAVIGATION ---
-        function showView(viewName) {
+        function showView(viewName, btn) {
             document.querySelectorAll('.main > div').forEach(v => v.classList.add('hidden'));
             document.getElementById('view-' + viewName).classList.remove('hidden');
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
+            if(btn) btn.classList.add('active');
             
             if(viewName === 'devices') loadDevices();
             if(viewName === 'inventory') loadInventory();
@@ -253,6 +268,7 @@
 
         // --- DEVICES & BOM ---
         async function loadDevices() {
+            if(!db) return;
             const { data, error } = await db.from('devices').select('*').order('created_at', { ascending: false });
             if (error) return console.error(error);
             currentDevices = data;
@@ -310,6 +326,7 @@
         }
 
         async function submitAddDevice() {
+            if(!db) return alert("Supabase n'est pas initialisé.");
             const name = document.getElementById('modal-device-name').value.trim();
             const fileInput = document.getElementById('modal-device-csv');
             if(!name) return alert("Entrez un nom");
@@ -386,7 +403,7 @@
                         <td>${item.qty}</td>
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
-                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id})"></td>
+                        <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
                         <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
                             <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
                             <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
@@ -428,8 +445,7 @@
             });
         }
 
-        async function toggleExclude(itemId) {
-            const checkbox = event.target;
+        async function toggleExclude(itemId, checkbox) {
             const { error } = await db.from('bom_items').update({ excluded: checkbox.checked }).eq('id', itemId);
             if(error) console.error(error);
         }
@@ -497,6 +513,7 @@
 
         // --- INVENTORY ---
         async function loadInventory() {
+            if(!db) return;
             const { data, error } = await db.from('inventory').select('*').order('value', { ascending: true });
             if(error) return console.error(error);
             
@@ -596,10 +613,10 @@
 
         // --- POPUP: AJOUTER DEPUIS BOM ---
         async function openAddFromBomModal() {
+            if(!db) return;
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('id');
             if(error) return console.error(error);
 
-            // Grouper par Value + LCSC + Mouser pour éviter les doublons visuels
             const grouped = {};
             items.forEach(item => {
                 const key = `${item.value}|${item.lcsc}|${item.mouser}`;
@@ -637,7 +654,7 @@
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitAddFromBom()">Ajouter à l'inventaire</button>`;
             
-            window.tempBomComponents = components; // Stockage temporaire pour la soumission
+            window.tempBomComponents = components; 
             openModal('Ajouter depuis une BOM', body, footer);
         }
 
@@ -646,7 +663,6 @@
             const count = Array.from(checkboxes).filter(c => c.checked).length;
             document.getElementById('selection-counter').innerText = `${count} composant${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}`;
             
-            // Activer/désactiver les inputs de quantité
             checkboxes.forEach(cb => {
                 const index = cb.dataset.index;
                 const qtyInput = document.querySelector(`[data-qty-index="${index}"]`);
@@ -692,6 +708,7 @@
 
         // --- FINAL BOM & BUILD ---
         async function loadDeviceQuantities() {
+            if(!db) return;
             const { data, error } = await db.from('devices').select('*');
             if(error) return console.error(error);
             
