@@ -90,12 +90,10 @@
         .device-name { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 12px; }
         .built-badge { background: #ecfdf5; color: var(--success); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;}
         
-        /* Modification de la flèche : pointe vers la droite par défaut, vers le bas quand déployé */
         .collapse-icon { transition: transform 0.2s; color: var(--text-muted); transform: rotate(-90deg); }
         .collapse-icon.expanded { transform: rotate(0deg); }
         
         .device-body { padding: 0 18px 18px 18px; display: none; }
-        /* Ajout de l'espace sous l'en-tête */
         .device-body.expanded { display: block; padding-top: 16px; }
         
         .hidden { display: none !important; }
@@ -107,7 +105,6 @@
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000;
         }
-        /* Modale élargie */
         .modal-content {
             background: var(--surface-color); padding: 24px; border-radius: 10px; width: 90%; max-width: 850px;
             max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
@@ -352,7 +349,6 @@
                 </div>
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="submitEditDevice(${id})">Sauvegarder</button>`;
-            // Correction de l'apostrophe ici : utilisation de guillemets doubles pour la chaîne externe
             openModal("Éditer l'appareil", body, footer);
         }
 
@@ -430,11 +426,11 @@
                 complete: async function(results) {
                     const rows = results.data.map(row => ({
                         device_id: deviceId,
-                        reference: row['Reference'] || row['Ref'] || '',
+                        reference: (row['Reference'] || row['Ref'] || '').trim(),
                         qty: parseInt(row['Qty']) || 1,
-                        value: row['Value'] || '',
-                        lcsc: row['LCSC part number'] || row['LCSC'] || '',
-                        mouser: row['Mouser part number'] || row['Mouser'] || '',
+                        value: (row['Value'] || '').trim(),
+                        lcsc: (row['LCSC part number'] || row['LCSC'] || '').trim(),
+                        mouser: (row['Mouser part number'] || row['Mouser'] || '').trim(),
                         excluded: false,
                         is_manual: false
                     })).filter(r => r.value !== '' || r.reference !== '');
@@ -622,16 +618,21 @@
 
             const grouped = {};
             items.forEach(item => {
-                const key = item.value + '|' + item.lcsc + '|' + item.mouser;
+                // Utilisation de trim() pour ignorer les espaces involontaires (comme pour l'ESP32)
+                const val = (item.value || '').trim();
+                const lcsc = (item.lcsc || '').trim();
+                const mouser = (item.mouser || '').trim();
+                const key = val + '|' + lcsc + '|' + mouser;
+                
                 if(!grouped[key]) {
-                    grouped[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, sources: [] };
+                    grouped[key] = { value: val, lcsc: lcsc, mouser: mouser, sources: [] };
                 }
                 grouped[key].sources.push((item.devices && item.devices.name ? item.devices.name : 'N/A') + ' (' + item.qty + ')');
             });
 
             const components = Object.values(grouped);
             window.tempBomComponents = components;
-            window.bomModalState = {}; // Suivi des cases cochées et quantités
+            window.bomModalState = {}; 
             
             components.forEach((c, i) => {
                 window.bomModalState[i] = { checked: false, qty: 0 };
@@ -684,7 +685,7 @@
                         <td>${createSupplierLink(c.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(c.mouser, 'mouser')}</td>
                         <td class="text-muted" style="font-size:0.8rem;">${c.sources.join(', ')}</td>
-                        <td><input type="number" class="qty-input" value="${state.qty}" ${!state.checked ? 'disabled' : ''} onchange="updateBomModalQty(${i}, this.value)" style="width: 70px;"></td>
+                        <td><input type="number" class="qty-input" min="0" value="${state.qty}" oninput="updateBomModalQty(${i}, this)" style="width: 70px;"></td>
                     `;
                     tbody.appendChild(tr);
                 }
@@ -698,11 +699,25 @@
         function toggleBomModalItem(index, isChecked) {
             window.bomModalState[index].checked = isChecked;
             updateSelectionCounter();
-            renderBomModalTable(); // Pour activer/désactiver l'input qty
+            renderBomModalTable(); 
         }
 
-        function updateBomModalQty(index, qty) {
-            window.bomModalState[index].qty = parseInt(qty) || 0;
+        function updateBomModalQty(index, inputElement) {
+            let q = parseInt(inputElement.value) || 0;
+            if (q < 0) {
+                q = 0;
+                inputElement.value = 0;
+            }
+            window.bomModalState[index].qty = q;
+            
+            // Cochage automatique si qty > 0
+            if (q > 0 && !window.bomModalState[index].checked) {
+                window.bomModalState[index].checked = true;
+                const row = inputElement.closest('tr');
+                const checkbox = row.querySelector('input[type="checkbox"]');
+                if (checkbox) checkbox.checked = true;
+                updateSelectionCounter();
+            }
         }
 
         function updateSelectionCounter() {
@@ -781,9 +796,9 @@
                 const qtyToBuild = quantities[devId];
                 const { data: items } = await db.from('bom_items').select('*').eq('device_id', devId).eq('excluded', false);
                 for (const item of items) {
-                    const key = item.value + '|' + item.lcsc + '|' + item.mouser;
+                    const key = (item.value || '').trim() + '|' + (item.lcsc || '').trim() + '|' + (item.mouser || '').trim();
                     if(!finalBomData[key]) {
-                        finalBomData[key] = { value: item.value, lcsc: item.lcsc, mouser: item.mouser, totalQty: 0 };
+                        finalBomData[key] = { value: (item.value || '').trim(), lcsc: (item.lcsc || '').trim(), mouser: (item.mouser || '').trim(), totalQty: 0 };
                     }
                     finalBomData[key].totalQty += item.qty * qtyToBuild;
                 }
