@@ -62,7 +62,7 @@
         .btn-secondary { background-color: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-main); }
         .btn-secondary:hover { background-color: var(--surface-hover); }
         .btn-success { background-color: var(--success); }
-        .btn-danger { background-color: transparent; color: var(--danger); border: 1px solid transparent; padding: 4px;}
+        .btn-danger { background-color: transparent; color: var(--danger); border: 1px solid transparent; padding: 4px 8px;}
         .btn-danger:hover { background-color: #fee2e2; }
         .btn-icon { background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; display: inline-flex; align-items: center; border-radius: 4px;}
         .btn-icon:hover { color: var(--accent); background-color: var(--surface-hover); }
@@ -155,6 +155,7 @@
                 <h2>Inventaire des composants</h2>
                 <div style="display:flex; gap:8px; flex-wrap: wrap;">
                     <button class="btn btn-secondary" onclick="toggleInventoryEditMode()" id="inv-edit-btn">Éditer la liste</button>
+                    <button class="btn btn-danger hidden" onclick="deleteSelectedInventoryItems()" id="inv-delete-selected-btn">Supprimer sélection</button>
                     <input type="file" id="inv-csv-input" accept=".csv" style="display:none;" onchange="importInventoryCsv(this.files[0])">
                     <button class="btn btn-secondary" onclick="document.getElementById('inv-csv-input').click()">Importer CSV</button>
                     <button class="btn btn-secondary" onclick="openAddManualInvModal()">+ Ajout Manuel</button>
@@ -165,6 +166,7 @@
             <table>
                 <thead>
                     <tr>
+                        <th class="inv-action-col hidden" style="width: 40px;"><input type="checkbox" onchange="toggleAllInvCheckboxes(this.checked)"></th>
                         <th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Quantité</th>
                         <th class="actions-cell inv-action-col hidden">Actions</th>
                     </tr>
@@ -276,7 +278,6 @@
             return val.trim().toLowerCase().replace(/µ/g, 'u');
         }
 
-        // Système de détection flexible des colonnes CSV
         function getFieldValue(row, possibleNames) {
             const rowKeys = Object.keys(row);
             for (const name of possibleNames) {
@@ -472,9 +473,12 @@
 
             let html = `
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <button class="btn btn-secondary" onclick="toggleBomEditMode(${deviceId})" id="bom-edit-btn-${deviceId}">
-                        ${bomEditStates[deviceId] ? 'Terminer' : 'Éditer la liste'}
-                    </button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn btn-secondary" onclick="toggleBomEditMode(${deviceId})" id="bom-edit-btn-${deviceId}">
+                            ${bomEditStates[deviceId] ? 'Terminer' : 'Éditer la liste'}
+                        </button>
+                        ${bomEditStates[deviceId] ? `<button class="btn btn-danger" onclick="deleteSelectedBomItems(${deviceId})">Supprimer sélection</button>` : ''}
+                    </div>
                     <div style="display:flex; gap:8px; align-items:center;">
                         <input type="file" id="csv-add-${deviceId}" accept=".csv" style="display:none;" onchange="importCsv(${deviceId}, this.files[0])">
                         <button class="btn btn-secondary" onclick="document.getElementById('csv-add-${deviceId}').click()">Importer CSV</button>
@@ -488,12 +492,17 @@
             } else {
                 html += `
                     <table>
-                        <thead><tr><th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th><th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th></tr></thead>
+                        <thead><tr>
+                            <th class="${bomEditStates[deviceId] ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" onchange="toggleAllBomCheckboxes(${deviceId}, this.checked)"></th>
+                            <th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th>
+                            <th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th>
+                        </tr></thead>
                         <tbody>
                 `;
                 for (const item of data) {
                     html += `
                         <tr>
+                            <td class="${bomEditStates[deviceId] ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" class="bom-row-select" data-device="${deviceId}" value="${item.id}"></td>
                             <td>${item.reference || '-'}</td>
                             <td>${item.value || '-'}</td>
                             <td>${item.qty}</td>
@@ -514,6 +523,31 @@
 
         function toggleBomEditMode(deviceId) {
             bomEditStates[deviceId] = !bomEditStates[deviceId];
+            loadBomItems(deviceId);
+        }
+
+        function toggleAllBomCheckboxes(deviceId, isChecked) {
+            document.querySelectorAll(`input.bom-row-select[data-device="${deviceId}"]`).forEach(cb => cb.checked = isChecked);
+        }
+
+        async function deleteSelectedBomItems(deviceId) {
+            const checkboxes = document.querySelectorAll(`input.bom-row-select[data-device="${deviceId}"]:checked`);
+            const idsToDelete = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (idsToDelete.length === 0) {
+                return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
+            }
+
+            const confirmDelete = await showCustomConfirm(
+                "Supprimer les composants", 
+                `Voulez-vous vraiment supprimer ces ${idsToDelete.length} composant(s) de la BOM ?`, 
+                "Supprimer", 
+                "Annuler"
+            );
+            if (!confirmDelete) return;
+
+            const { error } = await db.from('bom_items').delete().in('id', idsToDelete);
+            if (error) return console.error(error);
             loadBomItems(deviceId);
         }
 
@@ -692,26 +726,33 @@
             currentInventory = data;
             
             const tbody = document.getElementById('inventory-table-body');
-            const actionCol = document.querySelector('.inv-action-col');
+            const actionCols = document.querySelectorAll('.inv-action-col');
+            const deleteBtn = document.getElementById('inv-delete-selected-btn');
             
-            if(isInventoryEditing) actionCol.classList.remove('hidden');
-            else actionCol.classList.add('hidden');
+            if(isInventoryEditing) {
+                actionCols.forEach(c => c.classList.remove('hidden'));
+                deleteBtn.classList.remove('hidden');
+            } else {
+                actionCols.forEach(c => c.classList.add('hidden'));
+                deleteBtn.classList.add('hidden');
+            }
 
             document.getElementById('inv-edit-btn').innerText = isInventoryEditing ? 'Terminer' : 'Éditer la liste';
 
             tbody.innerHTML = '';
             if(data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-muted" style="text-align:center; padding: 20px;">Inventaire vide.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center; padding: 20px;">Inventaire vide.</td></tr>';
                 return;
             }
             for (const item of data) {
                 tbody.innerHTML += `
                     <tr>
+                        <td class="inv-action-col ${isInventoryEditing ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" class="inv-row-select" value="${item.id}"></td>
                         <td>${item.value || '-'}</td>
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                         <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
-                        <td class="actions-cell ${isInventoryEditing ? '' : 'hidden'}" style="text-align:right;">
+                        <td class="actions-cell inv-action-col ${isInventoryEditing ? '' : 'hidden'}" style="text-align:right;">
                             <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
                             <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
                         </td>
@@ -721,15 +762,45 @@
             filterInventory();
         }
 
+        function toggleAllInvCheckboxes(isChecked) {
+            document.querySelectorAll('input.inv-row-select').forEach(cb => {
+                // Ne coche que les lignes visibles (non filtrées)
+                if (cb.closest('tr').style.display !== 'none') {
+                    cb.checked = isChecked;
+                }
+            });
+        }
+
+        async function deleteSelectedInventoryItems() {
+            const checkboxes = document.querySelectorAll('input.inv-row-select:checked');
+            const idsToDelete = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (idsToDelete.length === 0) {
+                return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
+            }
+
+            const confirmDelete = await showCustomConfirm(
+                "Supprimer les composants", 
+                `Voulez-vous vraiment supprimer ces ${idsToDelete.length} composant(s) de l'inventaire ?`, 
+                "Supprimer", 
+                "Annuler"
+            );
+            if (!confirmDelete) return;
+
+            const { error } = await db.from('inventory').delete().in('id', idsToDelete);
+            if (error) return console.error(error);
+            loadInventory();
+        }
+
         function filterInventory() {
             const query = document.getElementById('inv-search').value.toLowerCase();
             const rows = document.querySelectorAll('#inventory-table-body tr');
             rows.forEach(row => {
-                if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 5) return;
+                if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 6) return;
 
-                const val = row.cells[0].textContent.toLowerCase();
-                const lcsc = row.cells[1].textContent.toLowerCase();
-                const mouser = row.cells[2].textContent.toLowerCase();
+                const val = row.cells[1].textContent.toLowerCase();
+                const lcsc = row.cells[2].textContent.toLowerCase();
+                const mouser = row.cells[3].textContent.toLowerCase();
 
                 if (val.includes(query) || lcsc.includes(query) || mouser.includes(query)) {
                     row.style.display = '';
@@ -780,7 +851,6 @@
             loadInventory();
         }
 
-        // --- NOUVELLE FONCTION : IMPORTER CSV INVENTAIRE ---
         async function importInventoryCsv(file) {
             if(!file) return;
             Papa.parse(file, {
