@@ -153,13 +153,14 @@
         <div id="view-inventory" class="hidden">
             <div class="header">
                 <h2>Inventaire des composants</h2>
-                <div style="display:flex; gap:8px;">
+                <div style="display:flex; gap:8px; flex-wrap: wrap;">
                     <button class="btn btn-secondary" onclick="toggleInventoryEditMode()" id="inv-edit-btn">Éditer la liste</button>
+                    <input type="file" id="inv-csv-input" accept=".csv" style="display:none;" onchange="importInventoryCsv(this.files[0])">
+                    <button class="btn btn-secondary" onclick="document.getElementById('inv-csv-input').click()">Importer CSV</button>
                     <button class="btn btn-secondary" onclick="openAddManualInvModal()">+ Ajout Manuel</button>
                     <button class="btn" onclick="openAddFromBomModal()">+ Depuis une BOM</button>
                 </div>
             </div>
-            <!-- Barre de recherche ajoutée ici -->
             <input type="text" id="inv-search" placeholder="Rechercher dans l'inventaire (Valeur, LCSC, Mouser)..." oninput="filterInventory()" style="width: 100%; max-width: 500px; margin-bottom: 10px;">
             <table>
                 <thead>
@@ -273,6 +274,19 @@
         function normalizeValue(val) {
             if (!val) return '';
             return val.trim().toLowerCase().replace(/µ/g, 'u');
+        }
+
+        // Système de détection flexible des colonnes CSV
+        function getFieldValue(row, possibleNames) {
+            const rowKeys = Object.keys(row);
+            for (const name of possibleNames) {
+                const nameLower = name.toLowerCase().trim();
+                const matchKey = rowKeys.find(k => k.trim().toLowerCase() === nameLower);
+                if (matchKey) {
+                    return row[matchKey];
+                }
+            }
+            return '';
         }
 
         const IconTrash = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
@@ -510,11 +524,11 @@
                 complete: async function(results) {
                     const rows = results.data.map(row => ({
                         device_id: deviceId,
-                        reference: (row['Reference'] || row['Ref'] || '').trim(),
-                        qty: parseInt(row['Qty']) || 1,
-                        value: (row['Value'] || '').trim(),
-                        lcsc: (row['LCSC part number'] || row['LCSC'] || '').trim(),
-                        mouser: (row['Mouser part number'] || row['Mouser'] || '').trim(),
+                        reference: getFieldValue(row, ['Reference', 'Ref']),
+                        qty: parseInt(getFieldValue(row, ['Qty', 'Quantity'])) || 1,
+                        value: getFieldValue(row, ['Value', 'Description', 'Component']),
+                        lcsc: getFieldValue(row, ['LCSC part number', 'LCSC Part Number', 'LCSC']),
+                        mouser: getFieldValue(row, ['Mouser part number', 'Mouser Part Number', 'Mouser']),
                         excluded: false,
                         is_manual: false
                     })).filter(r => r.value !== '' || r.reference !== '');
@@ -704,16 +718,13 @@
                     </tr>
                 `;
             }
-            // Appliquer le filtre actuel au cas où on rechargerait l'inventaire
             filterInventory();
         }
 
-        // --- NOUVELLE FONCTION : FILTRER L'INVENTAIRE ---
         function filterInventory() {
             const query = document.getElementById('inv-search').value.toLowerCase();
             const rows = document.querySelectorAll('#inventory-table-body tr');
             rows.forEach(row => {
-                // Si c'est la ligne "Inventaire vide", on ne la cache pas
                 if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 5) return;
 
                 const val = row.cells[0].textContent.toLowerCase();
@@ -767,6 +778,49 @@
             if(error) console.error(error);
             closeModal();
             loadInventory();
+        }
+
+        // --- NOUVELLE FONCTION : IMPORTER CSV INVENTAIRE ---
+        async function importInventoryCsv(file) {
+            if(!file) return;
+            Papa.parse(file, {
+                header: true,
+                complete: async function(results) {
+                    const rows = results.data.map(row => ({
+                        value: getFieldValue(row, ['Value', 'Description', 'Component']),
+                        qty: parseInt(getFieldValue(row, ['Qty', 'Quantity'])) || 0,
+                        lcsc: getFieldValue(row, ['LCSC part number', 'LCSC Part Number', 'LCSC']),
+                        mouser: getFieldValue(row, ['Mouser part number', 'Mouser Part Number', 'Mouser'])
+                    })).filter(r => r.value !== '' || r.lcsc !== '' || r.mouser !== '');
+
+                    if(rows.length === 0) return await showCustomAlert("Importation", "Aucune donnée valide trouvée dans le CSV.");
+
+                    const { data: invItems } = await db.from('inventory').select('*');
+            
+                    let addedCount = 0;
+                    let updatedCount = 0;
+
+                    for (const item of rows) {
+                        let existing = invItems.find(i => 
+                            (i.lcsc === item.lcsc || (!i.lcsc && !item.lcsc)) && 
+                            (i.mouser === item.mouser || (!i.mouser && !item.mouser))
+                        );
+
+                        if(existing) {
+                            await db.from('inventory').update({ qty: existing.qty + item.qty }).eq('id', existing.id);
+                            updatedCount++;
+                        } else {
+                            await db.from('inventory').insert([{ 
+                                value: item.value, lcsc: item.lcsc, mouser: item.mouser, qty: item.qty 
+                            }]);
+                            addedCount++;
+                        }
+                    }
+
+                    await showCustomAlert("Importation réussie", `${addedCount} nouveau(x) composant(s) ajouté(s) et ${updatedCount} mise(s) à jour.`);
+                    loadInventory();
+                }
+            });
         }
 
         async function openEditInvModal(id) {
