@@ -307,17 +307,23 @@
         // Fonction intelligente de standardisation des unités
         function standardizeValue(val, ref = '') {
             if (!val) return '';
-            let v = val.trim().replace(',', '.');
-            v = v.replace(/\s+/g, ''); // Supprimer tous les espaces
             
-            // Déduction du type par la référence (ex: C1 -> F, R1 -> Ω, L1 -> H)
+            // 1. Déduction du type par la référence (ex: C1 -> F, R1 -> Ω, L1 -> H)
             let refType = '';
             if (/^C\d+/i.test(ref)) refType = 'F';
             else if (/^R\d+/i.test(ref)) refType = 'Ω';
             else if (/^L\d+/i.test(ref)) refType = 'H';
             
-            // Nombre seul
-            if (/^\d+(\.\d+)?$/.test(v)) return v + (refType || 'Ω');
+            // Si ce n'est pas un condensateur, résistance ou bobine (ex: D1, BT1, LS1), on ne modifie pas
+            if (!refType) {
+                return val;
+            }
+            
+            let v = val.trim().replace(',', '.');
+            v = v.replace(/\s+/g, ''); // Supprimer tous les espaces
+            
+            // Nombre seul -> on ajoute l'unité
+            if (/^\d+(\.\d+)?$/.test(v)) return v + refType;
             
             // Gère 4k7, 4R7, 4n7
             let match = v.match(/^(\d+)([RrKkMmPpNnUuµ])(\d+)$/);
@@ -340,23 +346,12 @@
             
             if (isNaN(num)) return v;
 
-            let type = '';
-            if (unit === 'f' || unit === 'F') type = 'F';
-            else if (unit === 'h' || unit === 'H') type = 'H';
-            else if (unit === 'Ω' || unit === 'ω') type = 'Ω';
-            else if (unit === 'v' || unit === 'V') type = 'V';
-            else if (unit === 'a' || unit === 'A') type = 'A';
-            else if (unit === 'w' || unit === 'W') type = 'W';
-            
-            if (!type) {
-                if (refType) {
-                    type = refType; // Utilise le type déduit de la référence
-                } else {
-                    let p = prefix.toLowerCase();
-                    if (p === 'p' || p === 'n' || p === 'µ') type = 'F';
-                    else if (p === 'k' || p === 'm' || p === 'g') type = 'Ω'; 
-                    else return v;
-                }
+            let type = refType; // On force le type déduit de la référence par défaut
+            // Si une unité explicite est présente, on l'utilise pour déterminer le type
+            if (unit) {
+                if (unit === 'f' || unit === 'F') type = 'F';
+                else if (unit === 'h' || unit === 'H') type = 'H';
+                else if (unit === 'Ω' || unit === 'ω') type = 'Ω';
             }
             
             let baseValue = num;
@@ -385,9 +380,7 @@
                 else if (absVal < 1) { stdNum = baseValue / 1e-3; stdPrefix = 'm'; }
                 else { stdNum = baseValue; stdPrefix = ''; }
             } else { 
-                if (absVal >= 1e6) { stdNum = baseValue / 1e6; stdPrefix = 'M'; }
-                else if (absVal >= 1e3) { stdNum = baseValue / 1e3; stdPrefix = 'k'; }
-                else { stdNum = baseValue; stdPrefix = ''; }
+                return v; // Si finalement on ne sait pas quoi en faire
             }
             
             let strNum = parseFloat(stdNum.toPrecision(6)).toString();
