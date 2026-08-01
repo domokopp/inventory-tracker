@@ -1623,7 +1623,7 @@
         async function exportCsv() {
             if(Object.keys(finalBomData).length === 0) return await showCustomAlert("Exportation", "Générez d'abord la BOM.");
             
-            let csv = "Valeur,Qté,LCSC part number,Mouser part number\n";
+            let csv = "Value,Qty,LCSC part number,Mouser part number\n";
             for (const item of Object.values(finalBomData)) {
                 csv += '"' + (item.value || '') + '",' + item.totalQty + ',"' + (item.lcsc || '') + '","' + (item.mouser || '') + '"\n';
             }
@@ -1642,7 +1642,7 @@
         async function exportMissingCsv() {
             if(missingData.length === 0) return await showCustomAlert("Exportation", "Aucun composant manquant.");
             
-            let csv = "Valeur,Qté Manquante,LCSC part number,Mouser part number\n";
+            let csv = "Value,Qty,LCSC part number,Mouser part number\n";
             for (const item of missingData) {
                 let substitutedQtyForItem = activeSubstitutions
                     .filter(sub => sub.originalKey === item.key)
