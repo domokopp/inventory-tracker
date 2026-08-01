@@ -23,6 +23,9 @@
             --danger-hover: #dc2626;
             --warning-bg: #fef2f2;
             --warning-border: #fecaca;
+            --conflict-bg: #fffbeb;
+            --conflict-border: #fef3c7;
+            --conflict-text: #d97706;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -125,6 +128,20 @@
             border-radius: 8px; padding: 16px; margin-top: 16px;
         }
         .missing-card h3 { color: var(--danger); font-size: 1rem; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+        .conflict-card {
+            background-color: var(--conflict-bg); border: 1px solid var(--conflict-border);
+            border-radius: 8px; padding: 16px; margin-top: 16px; margin-bottom: 24px;
+        }
+        .conflict-card h3 { color: var(--conflict-text); font-size: 1rem; margin-bottom: 16px; }
+        .conflict-section-title { font-size: 0.9rem; color: var(--text-main); font-weight: 600; margin-bottom: 8px; margin-top: 16px; }
+        .conflict-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px; background: var(--surface-color); border: 1px solid var(--border-color);
+            border-radius: 6px; margin-bottom: 8px;
+        }
+        .conflict-info { font-size: 0.85rem; line-height: 1.4; }
+        .conflict-actions { display: flex; gap: 8px; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -141,11 +158,15 @@
             <div class="header">
                 <h2>Appareils</h2>
                 <div style="display:flex; gap:8px; flex-wrap: wrap;">
-                    <button class="btn btn-secondary" onclick="checkBomConflicts()">Analyser les conflits</button>
+                    <button class="btn btn-secondary" onclick="loadAndAnalyzeConflicts()">Analyser les conflits</button>
+                    <button class="btn btn-secondary" onclick="showIgnoredConflictsModal()">Conflits ignorés</button>
                     <button class="btn btn-secondary" onclick="resetBuiltCounts()">Réinitialiser compteurs</button>
                     <button class="btn" onclick="openAddDeviceModal()">+ Ajouter un appareil</button>
                 </div>
             </div>
+            
+            <div id="conflicts-section" class="hidden"></div>
+            
             <div id="devices-list"></div>
         </div>
 
@@ -179,11 +200,7 @@
         <div id="view-finalBom" class="hidden">
             <div class="header">
                 <h2>Génération & Construction</h2>
-                <div style="display:flex; gap:10px;">
-                    <button class="btn btn-secondary" onclick="generateFinalBom()">1. Générer la BOM</button>
-                    <button class="btn btn-secondary" onclick="exportCsv()">2. Exporter CSV</button>
-                    <button class="btn btn-success" onclick="buildDevices()">3. Construire</button>
-                </div>
+                <button class="btn btn-secondary" onclick="generateFinalBom()">Générer la BOM</button>
             </div>
             
             <div class="device-card" style="border: 1px solid var(--border-color); padding: 16px; background: var(--surface-color);">
@@ -193,15 +210,21 @@
 
             <div id="missing-components-section" class="hidden"></div>
 
-            <div class="mt-2">
-                <h3 style="font-size:1rem; margin-bottom:8px;">Aperçu de la BOM Finale</h3>
+            <div id="final-bom-section" class="hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; margin-bottom: 8px;">
+                    <h3 style="font-size:1rem; margin:0;">Aperçu de la BOM Finale</h3>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-icon" onclick="exportCsv()" title="Télécharger la BOM finale CSV">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        </button>
+                        <button class="btn btn-success" onclick="buildDevices()">Construire</button>
+                    </div>
+                </div>
                 <table>
                     <thead>
                         <tr><th>Valeur</th><th>Qté Totale</th><th>LCSC</th><th>Mouser</th></tr>
                     </thead>
-                    <tbody id="final-bom-table-body">
-                        <tr><td colspan="4" class="text-muted" style="text-align:center; padding: 30px;">Cliquez sur "Générer la BOM" pour calculer les composants nécessaires.</td></tr>
-                    </tbody>
+                    <tbody id="final-bom-table-body"></tbody>
                 </table>
             </div>
         </div>
@@ -251,6 +274,7 @@
         let activeSubstitutions = []; 
         let isInventoryEditing = false;
         let bomEditStates = {}; 
+        let currentValConflicts = []; // Stocke les conflits de valeurs en cours
 
         // --- NAVIGATION ---
         function showView(viewName, btn) {
@@ -644,22 +668,25 @@
             loadBomItems(deviceId);
         }
 
-        // --- ANALYSE DES CONFLITS ---
-        async function checkBomConflicts() {
+        // --- ANALYSE DES CONFLITS (INLINE) ---
+        async function loadAndAnalyzeConflicts() {
             if(!db) return;
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
-            if(error) return console.error(error);
+            const { data: ignored, error: errIgn } = await db.from('ignored_conflicts').select('*');
+            if(error || errIgn) return console.error(error || errIgn);
+            
+            const ignoredKeys = new Set(ignored.map(i => i.conflict_key));
 
+            // 1. Conflits de Réfs (Même Valeur, Réfs différentes)
             const byValue = {};
             items.forEach(item => {
                 const val = normalizeValue(item.value);
                 if(val === '') return;
-
                 if(!byValue[val]) byValue[val] = [];
                 byValue[val].push(item);
             });
 
-            const conflicts = [];
+            const refConflicts = [];
             for(const val in byValue) {
                 const itemsWithVal = byValue[val];
                 if(itemsWithVal.length > 1) {
@@ -674,48 +701,177 @@
                         uniqueParts[key].sources.push((item.devices && item.devices.name ? item.devices.name : 'N/A') + ' (' + item.qty + ')');
                     });
 
-                    const partCount = Object.keys(uniqueParts).length;
-                    if(partCount > 1) {
-                        conflicts.push({
-                            value: itemsWithVal[0].value,
-                            parts: Object.values(uniqueParts)
+                    const conflictKey = 'val-ref:' + val;
+                    if(Object.keys(uniqueParts).length > 1 && !ignoredKeys.has(conflictKey)) {
+                        refConflicts.push({ key: conflictKey, value: itemsWithVal[0].value, parts: Object.values(uniqueParts) });
+                    }
+                }
+            }
+
+            // 2. Conflits de Valeurs (Même Réf, Valeurs différentes)
+            const byPart = {};
+            items.forEach(item => {
+                const lcsc = (item.lcsc || '').trim();
+                const mouser = (item.mouser || '').trim();
+                if(!lcsc && !mouser) return;
+                
+                const key = lcsc + '|' + mouser;
+                if(!byPart[key]) byPart[key] = [];
+                byPart[key].push(item);
+            });
+
+            const valConflicts = [];
+            for(const key in byPart) {
+                const itemsWithPart = byPart[key];
+                if(itemsWithPart.length > 1) {
+                    const uniqueValues = {};
+                    itemsWithPart.forEach(item => {
+                        const val = (item.value || '').trim();
+                        if(!uniqueValues[val]) {
+                            uniqueValues[val] = { value: val, sources: [] };
+                        }
+                        uniqueValues[val].sources.push((item.devices && item.devices.name ? item.devices.name : 'N/A') + ' (' + item.qty + ')');
+                    });
+
+                    const conflictKey = 'ref-val:' + key;
+                    if(Object.keys(uniqueValues).length > 1 && !ignoredKeys.has(conflictKey)) {
+                        valConflicts.push({
+                            key: conflictKey,
+                            lcsc: itemsWithPart[0].lcsc || '',
+                            mouser: itemsWithPart[0].mouser || '',
+                            values: Object.values(uniqueValues)
                         });
                     }
                 }
             }
 
-            displayConflictModal(conflicts);
+            currentValConflicts = valConflicts;
+            renderConflicts(refConflicts, valConflicts);
         }
 
-        function displayConflictModal(conflicts) {
-            let bodyHtml = '';
-            if(conflicts.length === 0) {
-                bodyHtml = '<p class="text-muted" style="text-align:center; padding: 20px;">Aucun conflit trouvé. Toutes les références pour une même valeur sont identiques.</p>';
-            } else {
-                bodyHtml = `<p class="text-muted" style="margin-bottom:16px;">${conflicts.length} valeur(s) avec des références (LCSC/Mouser) différentes :</p>`;
-                bodyHtml += '<div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">';
-                bodyHtml += '<table style="margin-top:0; border:none;">';
-                bodyHtml += '<thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 1;"><tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Présent dans</th></tr></thead><tbody>';
+        function renderConflicts(refConflicts, valConflicts) {
+            const section = document.getElementById('conflicts-section');
+            
+            if(refConflicts.length === 0 && valConflicts.length === 0) {
+                section.classList.remove('hidden');
+                section.className = 'conflict-card';
+                section.innerHTML = '<h3>Analyse des conflits</h3><p class="text-muted" style="margin:0;">Aucun conflit détecté. Tout est propre !</p>';
+                return;
+            }
 
-                conflicts.forEach(conf => {
-                    conf.parts.forEach((part, index) => {
-                        const valCell = index === 0 ? `<td rowspan="${conf.parts.length}" style="font-weight:600; vertical-align:top; background: var(--surface-hover);">${conf.value}</td>` : '';
-                        bodyHtml += `
-                            <tr>
-                                ${valCell}
-                                <td>${createSupplierLink(part.lcsc, 'lcsc')}</td>
-                                <td>${createSupplierLink(part.mouser, 'mouser')}</td>
-                                <td class="text-muted" style="font-size:0.8rem;">${part.sources.join(', ')}</td>
-                            </tr>
-                        `;
-                    });
+            section.classList.remove('hidden');
+            section.className = 'conflict-card';
+            
+            let html = '<h3>Conflits détectés</h3>';
+            
+            if(refConflicts.length > 0) {
+                html += '<div style="margin-bottom: 16px;"><div class="conflict-section-title">Valeurs identiques, Réfs différentes :</div>';
+                refConflicts.forEach(c => {
+                    let partsHtml = c.parts.map(p => `LCSC: ${p.lcsc || '-'} / Mouser: ${p.mouser || '-'} <span class="text-muted">(${p.sources.join(', ')})</span>`).join('<br>');
+                    html += `
+                        <div class="conflict-item">
+                            <div class="conflict-info"><strong>${c.value}</strong><br>${partsHtml}</div>
+                            <div class="conflict-actions"><button class="btn btn-secondary" onclick="ignoreConflict('${c.key}', 'ref')">Ignorer</button></div>
+                        </div>
+                    `;
                 });
+                html += '</div>';
+            }
 
-                bodyHtml += '</tbody></table></div>';
+            if(valConflicts.length > 0) {
+                html += '<div><div class="conflict-section-title">Réfs identiques, Valeurs différentes :</div>';
+                valConflicts.forEach(c => {
+                    let valuesHtml = c.values.map(v => `<strong>${v.value || '-'}</strong> <span class="text-muted">(${v.sources.join(', ')})</span>`).join('<br>');
+                    html += `
+                        <div class="conflict-item">
+                            <div class="conflict-info">LCSC: ${c.lcsc || '-'} / Mouser: ${c.mouser || '-'}<br>${valuesHtml}</div>
+                            <div class="conflict-actions">
+                                <button class="btn" onclick="openValueFixModal('${c.key}')">Corriger</button>
+                                <button class="btn btn-secondary" onclick="ignoreConflict('${c.key}', 'val')">Ignorer</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            section.innerHTML = html;
+        }
+
+        async function ignoreConflict(conflictKey, type) {
+            const { error } = await db.from('ignored_conflicts').insert([{ conflict_key: conflictKey, conflict_type: type }]);
+            if(error) return console.error(error);
+            loadAndAnalyzeConflicts();
+        }
+
+        function openValueFixModal(conflictKey) {
+            const conflict = currentValConflicts.find(c => c.key === conflictKey);
+            if(!conflict) return;
+
+            let optionsHtml = conflict.values.map(v => `<option value="${v.value}">${v.value || '(Vide)'}</option>`).join('');
+            
+            const body = `
+                <p class="text-muted" style="margin-bottom: 16px;">Composant: <strong>LCSC: ${conflict.lcsc || '-'} / Mouser: ${conflict.mouser || '-'}</strong><br>Choisissez la valeur à appliquer partout :</p>
+                <div class="form-group">
+                    <select id="fix-value-select" style="width: 100%;">${optionsHtml}</select>
+                </div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="applyValueFix('${conflictKey}')">Appliquer</button>`;
+            openModal("Corriger la valeur", body, footer);
+        }
+
+        async function applyValueFix(conflictKey) {
+            const conflict = currentValConflicts.find(c => c.key === conflictKey);
+            if(!conflict) return;
+
+            const newValue = document.getElementById('fix-value-select').value;
+            let query = db.from('bom_items').update({ value: newValue });
+            if(conflict.lcsc) query = query.eq('lcsc', conflict.lcsc); else query = query.is('lcsc', null);
+            if(conflict.mouser) query = query.eq('mouser', conflict.mouser); else query = query.is('mouser', null);
+
+            const { error } = await query;
+            if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
+            
+            // On ignore automatiquement le conflit car il est résolu
+            await db.from('ignored_conflicts').insert([{ conflict_key: conflictKey, conflict_type: 'val' }]);
+            
+            await showCustomAlert("Succès", "Valeur mise à jour avec succès.");
+            closeModal();
+            loadAndAnalyzeConflicts();
+        }
+
+        async function showIgnoredConflictsModal() {
+            const { data: ignored, error } = await db.from('ignored_conflicts').select('*').order('created_at', { ascending: false });
+            if(error) return console.error(error);
+
+            let bodyHtml = '';
+            if(ignored.length === 0) {
+                bodyHtml = '<p class="text-muted" style="text-align:center; padding: 20px;">Aucun conflit ignoré.</p>';
+            } else {
+                bodyHtml = '<div style="max-height: 400px; overflow-y: auto;">';
+                ignored.forEach(ig => {
+                    const [type, ...rest] = ig.conflict_key.split(':');
+                    const target = rest.join(':');
+                    const typeName = type === 'val-ref' ? 'Valeurs identiques, Réfs différentes' : 'Réfs identiques, Valeurs différentes';
+                    bodyHtml += `
+                        <div class="conflict-item">
+                            <div class="conflict-info"><strong>${typeName}</strong><br><span class="text-muted">${target}</span></div>
+                            <div class="conflict-actions"><button class="btn btn-danger" onclick="restoreConflict(${ig.id})">Restaurer</button></div>
+                        </div>
+                    `;
+                });
+                bodyHtml += '</div>';
             }
 
             const footer = `<button class="btn" onclick="closeModal()">Fermer</button>`;
-            openModal("Analyse des conflits", bodyHtml, footer);
+            openModal("Conflits ignorés", bodyHtml, footer);
+        }
+
+        async function restoreConflict(id) {
+            const { error } = await db.from('ignored_conflicts').delete().eq('id', id);
+            if(error) return console.error(error);
+            showIgnoredConflictsModal(); // Refresh modal
+            loadAndAnalyzeConflicts(); // Refresh inline list
         }
 
         // --- INVENTORY ---
@@ -764,7 +920,6 @@
 
         function toggleAllInvCheckboxes(isChecked) {
             document.querySelectorAll('input.inv-row-select').forEach(cb => {
-                // Ne coche que les lignes visibles (non filtrées)
                 if (cb.closest('tr').style.display !== 'none') {
                     cb.checked = isChecked;
                 }
@@ -1082,6 +1237,7 @@
                 `;
             }
             document.getElementById('missing-components-section').classList.add('hidden');
+            document.getElementById('final-bom-section').classList.add('hidden');
         }
 
         async function generateFinalBom() {
@@ -1149,6 +1305,7 @@
             }
 
             renderMissingSection();
+            document.getElementById('final-bom-section').classList.remove('hidden');
         }
 
         function renderMissingSection() {
@@ -1165,10 +1322,15 @@
             section.classList.remove('hidden');
             section.className = 'missing-card';
             section.innerHTML = `
-                <h3>
-                    <span>Composants manquants à l'inventaire</span>
-                    <span class="text-danger" style="font-size: 0.85rem; font-weight: 500;">Total restant: ${displayMissing}</span>
-                </h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="font-size:1rem; margin:0;">Composants manquants à l'inventaire</h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="text-danger" style="font-size: 0.85rem; font-weight: 500;">Total restant: ${displayMissing}</span>
+                        <button class="btn-icon" onclick="exportMissingCsv()" title="Télécharger BOM Manquants CSV">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        </button>
+                    </div>
+                </div>
                 <table style="margin-top: 0; border: 1px solid var(--warning-border); background: var(--surface-color);">
                     <thead>
                         <tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Manquant</th><th>Actions</th></tr>
@@ -1289,6 +1451,32 @@
             document.body.removeChild(link);
         }
 
+        async function exportMissingCsv() {
+            if(missingData.length === 0) return await showCustomAlert("Exportation", "Aucun composant manquant.");
+            
+            let csv = "Valeur,Qté Manquante,LCSC part number,Mouser part number\n";
+            for (const item of missingData) {
+                let substitutedQtyForItem = activeSubstitutions
+                    .filter(sub => sub.originalKey === item.key)
+                    .reduce((sum, sub) => sum + sub.subQty, 0);
+                let remainingMissing = Math.max(0, item.missingQty - substitutedQtyForItem);
+                
+                if(remainingMissing > 0) {
+                    csv += '"' + (item.value || '') + '",' + remainingMissing + ',"' + (item.lcsc || '') + '","' + (item.mouser || '') + '"\n';
+                }
+            }
+
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "bom_manquants.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         async function buildDevices() {
             if(Object.keys(finalBomData).length === 0) {
                 return await showCustomAlert("Construction", "Générez d'abord la BOM finale avant de construire.");
@@ -1335,6 +1523,14 @@
                 if(!confirmMissing) return; 
             }
 
+            const confirmBuild = await showCustomConfirm(
+                "Confirmation de construction", 
+                "Voulez-vous vraiment déduire/soustraire ces composants de l'inventaire ?",
+                "Construire",
+                "Annuler"
+            );
+            if(!confirmBuild) return; 
+
             const { error: rpcError } = await db.rpc('build_devices', { p_quantities: quantities });
             if(rpcError) {
                 await showCustomAlert("Erreur", "Erreur lors de la construction principale. Vérifiez la console.");
@@ -1365,8 +1561,9 @@
             activeSubstitutions = [];
             missingData = [];
             finalBomData = {};
-            document.getElementById('final-bom-table-body').innerHTML = '<tr><td colspan="4" class="text-muted" style="text-align:center; padding: 30px;">Cliquez sur "Générer la BOM" pour calculer les composants nécessaires.</td></tr>';
+            document.getElementById('final-bom-table-body').innerHTML = '';
             document.getElementById('missing-components-section').classList.add('hidden');
+            document.getElementById('final-bom-section').classList.add('hidden');
             loadDevices(); 
         }
 
