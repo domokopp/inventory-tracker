@@ -303,6 +303,86 @@
             return val.trim().toLowerCase().replace(/µ/g, 'u');
         }
 
+        // Fonction intelligente de standardisation des unités
+        function standardizeValue(val) {
+            if (!val) return '';
+            let v = val.trim().replace(',', '.');
+            
+            // Just a number
+            if (/^\d+(\.\d+)?$/.test(v)) return v + 'Ω';
+            
+            // Handle 4k7, 4R7, 4n7
+            let match = v.match(/^(\d+)([RrKkMmPpNnUuµµm])(\d+)$/);
+            if (match) {
+                v = match[1] + '.' + match[3] + match[2];
+            }
+            
+            // Check if it's a pure value
+            if (!/^[\d\.]+[a-zA-ZµΩ]*$/.test(v)) return v;
+            
+            // Clean up
+            v = v.replace(/\s/g, '').replace(/[uU]/g, 'µ').replace(/[rR]/g, 'Ω').replace(/ohm/i, 'Ω');
+            
+            match = v.match(/^([\d\.]+)([pPnNµµmkKMgG]?)([fFhHΩωvVaAwW]?)$/);
+            if (!match) return v; 
+            
+            let num = parseFloat(match[1]);
+            let prefix = match[2];
+            let unit = match[3];
+            
+            if (isNaN(num)) return v;
+
+            let type = '';
+            if (unit === 'f' || unit === 'F') type = 'F';
+            else if (unit === 'h' || unit === 'H') type = 'H';
+            else if (unit === 'Ω' || unit === 'ω') type = 'Ω';
+            else if (unit === 'v' || unit === 'V') type = 'V';
+            else if (unit === 'a' || unit === 'A') type = 'A';
+            else if (unit === 'w' || unit === 'W') type = 'W';
+            
+            if (!type) {
+                let p = prefix.toLowerCase();
+                if (p === 'p' || p === 'n' || p === 'µ' || p === 'm') type = 'F';
+                else if (p === 'k' || p === 'm' || p === 'g') type = 'Ω'; 
+                else return v;
+            }
+            
+            let baseValue = num;
+            let p = prefix.toLowerCase();
+            let origPrefix = match[2];
+            
+            if (p === 'p') baseValue *= 1e-12;
+            else if (p === 'n') baseValue *= 1e-9;
+            else if (p === 'µ') baseValue *= 1e-6;
+            else if (p === 'm' && origPrefix === 'm') baseValue *= 1e-3; 
+            else if (p === 'm' && origPrefix === 'M') baseValue *= 1e6; 
+            else if (p === 'k') baseValue *= 1e3;
+            else if (p === 'g') baseValue *= 1e9;
+
+            let absVal = Math.abs(baseValue);
+            let stdNum, stdPrefix;
+
+            if (type === 'F' || type === 'H') {
+                if (absVal >= 1e-6) { stdNum = baseValue / 1e-6; stdPrefix = 'µ'; }
+                else if (absVal >= 1e-9) { stdNum = baseValue / 1e-9; stdPrefix = 'n'; }
+                else if (absVal >= 1e-12) { stdNum = baseValue / 1e-12; stdPrefix = 'p'; }
+                else { stdNum = baseValue; stdPrefix = ''; }
+            } else if (type === 'Ω') {
+                if (absVal >= 1e6) { stdNum = baseValue / 1e6; stdPrefix = 'M'; }
+                else if (absVal >= 1e3) { stdNum = baseValue / 1e3; stdPrefix = 'k'; }
+                else if (absVal < 1) { stdNum = baseValue / 1e-3; stdPrefix = 'm'; }
+                else { stdNum = baseValue; stdPrefix = ''; }
+            } else { 
+                if (absVal >= 1e6) { stdNum = baseValue / 1e6; stdPrefix = 'M'; }
+                else if (absVal >= 1e3) { stdNum = baseValue / 1e3; stdPrefix = 'k'; }
+                else { stdNum = baseValue; stdPrefix = ''; }
+            }
+            
+            let strNum = parseFloat(stdNum.toPrecision(6)).toString();
+            
+            return strNum + stdPrefix + type;
+        }
+
         function getFieldValue(row, possibleNames) {
             const rowKeys = Object.keys(row);
             for (const name of possibleNames) {
@@ -673,8 +753,32 @@
         async function loadAndAnalyzeConflicts() {
             if(!db) return;
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
+            if(error) return console.error(error);
+            
+            // --- AUTO-CORRECTION DES VALEURS ---
+            const itemsToUpdate = [];
+            items.forEach(item => {
+                const originalVal = item.value || '';
+                const standardVal = standardizeValue(originalVal);
+                if(originalVal !== standardVal) {
+                    itemsToUpdate.push({ id: item.id, value: standardVal });
+                }
+            });
+            
+            if(itemsToUpdate.length > 0) {
+                for(const it of itemsToUpdate) {
+                    await db.from('bom_items').update({ value: it.value }).eq('id', it.id);
+                }
+                items.forEach(item => {
+                    const update = itemsToUpdate.find(u => u.id === item.id);
+                    if(update) item.value = update.value;
+                });
+                loadDevices(); // Recharge les listes déroulantes en dessous
+            }
+            // --- FIN AUTO-CORRECTION ---
+
             const { data: ignored, error: errIgn } = await db.from('ignored_conflicts').select('*');
-            if(error || errIgn) return console.error(error || errIgn);
+            if(errIgn) return console.error(errIgn);
             
             const ignoredKeys = new Set(ignored.map(i => i.conflict_key));
 
@@ -709,7 +813,8 @@
                         refConflicts.push({
                             key: conflictKey,
                             values: Array.from(uniqueValues),
-                            parts: Object.values(uniqueParts)
+                            parts: Object.values(uniqueParts),
+                            item_ids: itemsWithVal.map(i => i.id) // Store IDs for reliable update
                         });
                     }
                 }
@@ -746,7 +851,8 @@
                             key: conflictKey,
                             lcsc: itemsWithPart[0].lcsc || '',
                             mouser: itemsWithPart[0].mouser || '',
-                            values: Object.values(uniqueValues)
+                            values: Object.values(uniqueValues),
+                            item_ids: itemsWithPart.map(i => i.id) // Store IDs for reliable update
                         });
                     }
                 }
@@ -842,12 +948,12 @@
 
             const { error } = await db.from('bom_items')
                 .update({ lcsc: selectedPart.lcsc, mouser: selectedPart.mouser })
-                .in('value', conflict.values);
+                .in('id', conflict.item_ids); // Update by IDs to avoid null/empty string matching issues
                 
             if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
             
-            await showCustomAlert("Succès", "Références mises à jour avec succès.");
             closeModal();
+            await showCustomAlert("Succès", "Références mises à jour avec succès.");
             loadAndAnalyzeConflicts();
         }
 
@@ -872,15 +978,14 @@
             if(!conflict) return;
 
             const newValue = document.getElementById('fix-value-select').value;
-            let query = db.from('bom_items').update({ value: newValue });
-            if(conflict.lcsc) query = query.eq('lcsc', conflict.lcsc); else query = query.is('lcsc', null);
-            if(conflict.mouser) query = query.eq('mouser', conflict.mouser); else query = query.is('mouser', null);
+            const { error } = await db.from('bom_items')
+                .update({ value: newValue })
+                .in('id', conflict.item_ids); // Update by IDs
 
-            const { error } = await query;
             if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
             
-            await showCustomAlert("Succès", "Valeur mise à jour avec succès.");
             closeModal();
+            await showCustomAlert("Succès", "Valeur mise à jour avec succès.");
             loadAndAnalyzeConflicts();
         }
 
