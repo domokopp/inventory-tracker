@@ -274,7 +274,8 @@
         let activeSubstitutions = []; 
         let isInventoryEditing = false;
         let bomEditStates = {}; 
-        let currentValConflicts = []; // Stocke les conflits de valeurs en cours
+        let currentValConflicts = [];
+        let currentRefConflicts = [];
 
         // --- NAVIGATION ---
         function showView(viewName, btn) {
@@ -690,8 +691,10 @@
             for(const val in byValue) {
                 const itemsWithVal = byValue[val];
                 if(itemsWithVal.length > 1) {
+                    const uniqueValues = new Set();
                     const uniqueParts = {};
                     itemsWithVal.forEach(item => {
+                        uniqueValues.add(item.value);
                         const lcsc = (item.lcsc || '').trim();
                         const mouser = (item.mouser || '').trim();
                         const key = lcsc + '|' + mouser;
@@ -703,7 +706,11 @@
 
                     const conflictKey = 'val-ref:' + val;
                     if(Object.keys(uniqueParts).length > 1 && !ignoredKeys.has(conflictKey)) {
-                        refConflicts.push({ key: conflictKey, value: itemsWithVal[0].value, parts: Object.values(uniqueParts) });
+                        refConflicts.push({
+                            key: conflictKey,
+                            values: Array.from(uniqueValues),
+                            parts: Object.values(uniqueParts)
+                        });
                     }
                 }
             }
@@ -745,6 +752,7 @@
                 }
             }
 
+            currentRefConflicts = refConflicts;
             currentValConflicts = valConflicts;
             renderConflicts(refConflicts, valConflicts);
         }
@@ -770,8 +778,11 @@
                     let partsHtml = c.parts.map(p => `LCSC: ${p.lcsc || '-'} / Mouser: ${p.mouser || '-'} <span class="text-muted">(${p.sources.join(', ')})</span>`).join('<br>');
                     html += `
                         <div class="conflict-item">
-                            <div class="conflict-info"><strong>${c.value}</strong><br>${partsHtml}</div>
-                            <div class="conflict-actions"><button class="btn btn-secondary" onclick="ignoreConflict('${c.key}', 'ref')">Ignorer</button></div>
+                            <div class="conflict-info"><strong>${c.values.join(' / ')}</strong><br>${partsHtml}</div>
+                            <div class="conflict-actions">
+                                <button class="btn" onclick="openRefFixModal('${c.key}')">Corriger</button>
+                                <button class="btn btn-secondary" onclick="ignoreConflict('${c.key}', 'ref')">Ignorer</button>
+                            </div>
                         </div>
                     `;
                 });
@@ -804,6 +815,42 @@
             loadAndAnalyzeConflicts();
         }
 
+        function openRefFixModal(conflictKey) {
+            const conflict = currentRefConflicts.find(c => c.key === conflictKey);
+            if(!conflict) return;
+
+            let optionsHtml = conflict.parts.map((p, i) => 
+                `<option value="${i}">LCSC: ${p.lcsc || '-'} / Mouser: ${p.mouser || '-'}</option>`
+            ).join('');
+            
+            const body = `
+                <p class="text-muted" style="margin-bottom: 16px;">Valeurs: <strong>${conflict.values.join(', ')}</strong><br>Choisissez la référence (LCSC/Mouser) à appliquer partout :</p>
+                <div class="form-group">
+                    <select id="fix-ref-select" style="width: 100%;">${optionsHtml}</select>
+                </div>
+            `;
+            const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="applyRefFix('${conflictKey}')">Appliquer</button>`;
+            openModal("Corriger la référence", body, footer);
+        }
+
+        async function applyRefFix(conflictKey) {
+            const conflict = currentRefConflicts.find(c => c.key === conflictKey);
+            if(!conflict) return;
+
+            const selectedIndex = document.getElementById('fix-ref-select').value;
+            const selectedPart = conflict.parts[selectedIndex];
+
+            const { error } = await db.from('bom_items')
+                .update({ lcsc: selectedPart.lcsc, mouser: selectedPart.mouser })
+                .in('value', conflict.values);
+                
+            if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
+            
+            await showCustomAlert("Succès", "Références mises à jour avec succès.");
+            closeModal();
+            loadAndAnalyzeConflicts();
+        }
+
         function openValueFixModal(conflictKey) {
             const conflict = currentValConflicts.find(c => c.key === conflictKey);
             if(!conflict) return;
@@ -831,9 +878,6 @@
 
             const { error } = await query;
             if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
-            
-            // On ignore automatiquement le conflit car il est résolu
-            await db.from('ignored_conflicts').insert([{ conflict_key: conflictKey, conflict_type: 'val' }]);
             
             await showCustomAlert("Succès", "Valeur mise à jour avec succès.");
             closeModal();
@@ -870,8 +914,8 @@
         async function restoreConflict(id) {
             const { error } = await db.from('ignored_conflicts').delete().eq('id', id);
             if(error) return console.error(error);
-            showIgnoredConflictsModal(); // Refresh modal
-            loadAndAnalyzeConflicts(); // Refresh inline list
+            showIgnoredConflictsModal();
+            loadAndAnalyzeConflicts();
         }
 
         // --- INVENTORY ---
@@ -1525,7 +1569,7 @@
 
             const confirmBuild = await showCustomConfirm(
                 "Confirmation de construction", 
-                "Voulez-vous vraiment déduire/soustraire ces composants de l'inventaire ?",
+                "Voulez-vous vraiment déduire ces composants de l'inventaire ?",
                 "Construire",
                 "Annuler"
             );
