@@ -276,6 +276,7 @@
         let bomEditStates = {}; 
         let currentValConflicts = [];
         let currentRefConflicts = [];
+        let currentNonStandardItems = [];
 
         // --- NAVIGATION ---
         function showView(viewName, btn) {
@@ -307,12 +308,13 @@
         function standardizeValue(val) {
             if (!val) return '';
             let v = val.trim().replace(',', '.');
+            v = v.replace(/\s+/g, ''); // Supprimer tous les espaces
             
             // Just a number
             if (/^\d+(\.\d+)?$/.test(v)) return v + 'Ω';
             
             // Handle 4k7, 4R7, 4n7
-            let match = v.match(/^(\d+)([RrKkMmPpNnUuµµm])(\d+)$/);
+            let match = v.match(/^(\d+)([RrKkMmPpNnUuµ])(\d+)$/);
             if (match) {
                 v = match[1] + '.' + match[3] + match[2];
             }
@@ -321,9 +323,9 @@
             if (!/^[\d\.]+[a-zA-ZµΩ]*$/.test(v)) return v;
             
             // Clean up
-            v = v.replace(/\s/g, '').replace(/[uU]/g, 'µ').replace(/[rR]/g, 'Ω').replace(/ohm/i, 'Ω');
+            v = v.replace(/[uU]/g, 'µ').replace(/[rR]/g, 'Ω').replace(/ohm/i, 'Ω');
             
-            match = v.match(/^([\d\.]+)([pPnNµµmkKMgG]?)([fFhHΩωvVaAwW]?)$/);
+            match = v.match(/^([\d\.]+)([pPnNµmkKMgG]?)([fFhHΩωvVaAwW]?)$/);
             if (!match) return v; 
             
             let num = parseFloat(match[1]);
@@ -342,7 +344,7 @@
             
             if (!type) {
                 let p = prefix.toLowerCase();
-                if (p === 'p' || p === 'n' || p === 'µ' || p === 'm') type = 'F';
+                if (p === 'p' || p === 'n' || p === 'µ') type = 'F';
                 else if (p === 'k' || p === 'm' || p === 'g') type = 'Ω'; 
                 else return v;
             }
@@ -755,27 +757,16 @@
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
             if(error) return console.error(error);
             
-            // --- AUTO-CORRECTION DES VALEURS ---
-            const itemsToUpdate = [];
-            items.forEach(item => {
-                const originalVal = item.value || '';
-                const standardVal = standardizeValue(originalVal);
-                if(originalVal !== standardVal) {
-                    itemsToUpdate.push({ id: item.id, value: standardVal });
+            // Calcul des valeurs non standard
+            currentNonStandardItems = [];
+            const processedItems = items.map(item => {
+                const originalVal = (item.value || '').trim();
+                const stdVal = standardizeValue(originalVal);
+                if(originalVal !== stdVal) {
+                    currentNonStandardItems.push({ id: item.id, value: stdVal });
                 }
+                return { ...item, standardizedValue: stdVal };
             });
-            
-            if(itemsToUpdate.length > 0) {
-                for(const it of itemsToUpdate) {
-                    await db.from('bom_items').update({ value: it.value }).eq('id', it.id);
-                }
-                items.forEach(item => {
-                    const update = itemsToUpdate.find(u => u.id === item.id);
-                    if(update) item.value = update.value;
-                });
-                loadDevices(); // Recharge les listes déroulantes en dessous
-            }
-            // --- FIN AUTO-CORRECTION ---
 
             const { data: ignored, error: errIgn } = await db.from('ignored_conflicts').select('*');
             if(errIgn) return console.error(errIgn);
@@ -784,8 +775,8 @@
 
             // 1. Conflits de Réfs (Même Valeur, Réfs différentes)
             const byValue = {};
-            items.forEach(item => {
-                const val = normalizeValue(item.value);
+            processedItems.forEach(item => {
+                const val = normalizeValue(item.standardizedValue);
                 if(val === '') return;
                 if(!byValue[val]) byValue[val] = [];
                 byValue[val].push(item);
@@ -798,7 +789,7 @@
                     const uniqueValues = new Set();
                     const uniqueParts = {};
                     itemsWithVal.forEach(item => {
-                        uniqueValues.add(item.value);
+                        uniqueValues.add(item.standardizedValue);
                         const lcsc = (item.lcsc || '').trim();
                         const mouser = (item.mouser || '').trim();
                         const key = lcsc + '|' + mouser;
@@ -814,7 +805,7 @@
                             key: conflictKey,
                             values: Array.from(uniqueValues),
                             parts: Object.values(uniqueParts),
-                            item_ids: itemsWithVal.map(i => i.id) // Store IDs for reliable update
+                            item_ids: itemsWithVal.map(i => i.id)
                         });
                     }
                 }
@@ -822,7 +813,7 @@
 
             // 2. Conflits de Valeurs (Même Réf, Valeurs différentes)
             const byPart = {};
-            items.forEach(item => {
+            processedItems.forEach(item => {
                 const lcsc = (item.lcsc || '').trim();
                 const mouser = (item.mouser || '').trim();
                 if(!lcsc && !mouser) return;
@@ -838,7 +829,7 @@
                 if(itemsWithPart.length > 1) {
                     const uniqueValues = {};
                     itemsWithPart.forEach(item => {
-                        const val = (item.value || '').trim();
+                        const val = item.standardizedValue; // Use standardized value for grouping
                         if(!uniqueValues[val]) {
                             uniqueValues[val] = { value: val, sources: [] };
                         }
@@ -852,7 +843,7 @@
                             lcsc: itemsWithPart[0].lcsc || '',
                             mouser: itemsWithPart[0].mouser || '',
                             values: Object.values(uniqueValues),
-                            item_ids: itemsWithPart.map(i => i.id) // Store IDs for reliable update
+                            item_ids: itemsWithPart.map(i => i.id)
                         });
                     }
                 }
@@ -860,16 +851,14 @@
 
             currentRefConflicts = refConflicts;
             currentValConflicts = valConflicts;
-            renderConflicts(refConflicts, valConflicts);
+            renderConflicts(refConflicts, valConflicts, currentNonStandardItems);
         }
 
-        function renderConflicts(refConflicts, valConflicts) {
+        function renderConflicts(refConflicts, valConflicts, nonStandardItems) {
             const section = document.getElementById('conflicts-section');
             
-            if(refConflicts.length === 0 && valConflicts.length === 0) {
-                section.classList.remove('hidden');
-                section.className = 'conflict-card';
-                section.innerHTML = '<h3>Analyse des conflits</h3><p class="text-muted" style="margin:0;">Aucun conflit détecté. Tout est propre !</p>';
+            if(refConflicts.length === 0 && valConflicts.length === 0 && nonStandardItems.length === 0) {
+                section.classList.add('hidden');
                 return;
             }
 
@@ -877,6 +866,20 @@
             section.className = 'conflict-card';
             
             let html = '<h3>Conflits détectés</h3>';
+
+            if(nonStandardItems.length > 0) {
+                html += `
+                    <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--conflict-border);">
+                        <div class="conflict-section-title">Valeurs non standard :</div>
+                        <div class="conflict-item">
+                            <div class="conflict-info"><strong>${nonStandardItems.length} composant(s)</strong> ont des valeurs non standard (ex: "10 uF", "4k7").</div>
+                            <div class="conflict-actions">
+                                <button class="btn" onclick="standardizeValuesInDb()">Standardiser les valeurs</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
             
             if(refConflicts.length > 0) {
                 html += '<div style="margin-bottom: 16px;"><div class="conflict-section-title">Valeurs identiques, Réfs différentes :</div>';
@@ -915,6 +918,27 @@
             section.innerHTML = html;
         }
 
+        async function standardizeValuesInDb() {
+            const items = currentNonStandardItems;
+            if(items.length === 0) return;
+
+            const confirmStd = await showCustomConfirm(
+                "Standardisation",
+                `Voulez-vous vraiment standardiser les valeurs de ${items.length} composant(s) ?`,
+                "Standardiser",
+                "Annuler"
+            );
+            if(!confirmStd) return;
+
+            for(const item of items) {
+                await db.from('bom_items').update({ value: item.value }).eq('id', item.id);
+            }
+
+            await showCustomAlert("Succès", "Valeurs standardisées avec succès.");
+            loadDevices(); // Recharge les BOM
+            loadAndAnalyzeConflicts(); // Rafraîchit les conflits
+        }
+
         async function ignoreConflict(conflictKey, type) {
             const { error } = await db.from('ignored_conflicts').insert([{ conflict_key: conflictKey, conflict_type: type }]);
             if(error) return console.error(error);
@@ -948,13 +972,14 @@
 
             const { error } = await db.from('bom_items')
                 .update({ lcsc: selectedPart.lcsc, mouser: selectedPart.mouser })
-                .in('id', conflict.item_ids); // Update by IDs to avoid null/empty string matching issues
+                .in('id', conflict.item_ids); 
                 
             if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
             
             closeModal();
             await showCustomAlert("Succès", "Références mises à jour avec succès.");
-            loadAndAnalyzeConflicts();
+            loadDevices(); // Recharge les BOM
+            loadAndAnalyzeConflicts(); // Rafraîchit les conflits
         }
 
         function openValueFixModal(conflictKey) {
@@ -980,13 +1005,14 @@
             const newValue = document.getElementById('fix-value-select').value;
             const { error } = await db.from('bom_items')
                 .update({ value: newValue })
-                .in('id', conflict.item_ids); // Update by IDs
+                .in('id', conflict.item_ids);
 
             if(error) return await showCustomAlert("Erreur", "Erreur lors de la mise à jour.");
             
             closeModal();
             await showCustomAlert("Succès", "Valeur mise à jour avec succès.");
-            loadAndAnalyzeConflicts();
+            loadDevices(); // Recharge les BOM
+            loadAndAnalyzeConflicts(); // Rafraîchit les conflits
         }
 
         async function showIgnoredConflictsModal() {
