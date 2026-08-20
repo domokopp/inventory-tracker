@@ -105,7 +105,7 @@
         .mt-2 { margin-top: 16px; }
         .text-muted { color: var(--text-muted); font-size: 0.85rem; }
         .text-danger { color: var(--danger); font-weight: 500; }
-        .actions-cell { width: 80px; text-align: right; }
+        .actions-cell { width: 100px; text-align: right; }
 
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -189,7 +189,7 @@
                     <tr>
                         <th class="inv-action-col hidden" style="width: 40px;"><input type="checkbox" onchange="toggleAllInvCheckboxes(this.checked)"></th>
                         <th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Quantité</th>
-                        <th class="actions-cell inv-action-col hidden">Actions</th>
+                        <th class="actions-cell">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="inventory-table-body"></tbody>
@@ -222,7 +222,7 @@
                 </div>
                 <table>
                     <thead>
-                        <tr><th>Valeur</th><th>Qté Totale</th><th>LCSC</th><th>Mouser</th></tr>
+                        <tr><th>Valeur</th><th>Qté Totale</th><th>LCSC</th><th>Mouser</th><th style="width: 40px;"></th></tr>
                     </thead>
                     <tbody id="final-bom-table-body"></tbody>
                 </table>
@@ -304,50 +304,31 @@
             return val.trim().toLowerCase().replace(/µ/g, 'u');
         }
 
-        // Fonction intelligente de standardisation des unités
         function standardizeValue(val, ref = '') {
             if (!val) return '';
-            
-            // 1. Déduction du type par la référence (ex: C1 -> F, R1 -> Ω, L1 -> H)
             let refType = '';
             if (/^C\d+/i.test(ref)) refType = 'F';
             else if (/^R\d+/i.test(ref)) refType = 'Ω';
             else if (/^L\d+/i.test(ref)) refType = 'H';
-            
-            // Si ce n'est pas un condensateur, résistance ou bobine (ex: D1, BT1, LS1), on ne modifie pas
-            if (!refType) {
-                return val;
-            }
+            if (!refType) return val;
             
             let v = val.trim().replace(',', '.');
-            v = v.replace(/\s+/g, ''); // Supprimer tous les espaces
-            
-            // Nombre seul -> on ajoute l'unité
+            v = v.replace(/\s+/g, '');
             if (/^\d+(\.\d+)?$/.test(v)) return v + refType;
             
-            // Gère 4k7, 4R7, 4n7
             let match = v.match(/^(\d+)([RrKkMmPpNnUuµ])(\d+)$/);
-            if (match) {
-                v = match[1] + '.' + match[3] + match[2];
-            }
-            
-            // Vérifie si c'est une valeur pure
+            if (match) v = match[1] + '.' + match[3] + match[2];
             if (!/^[\d\.]+[a-zA-ZµΩ]*$/.test(v)) return v;
-            
-            // Nettoyage
             v = v.replace(/[uU]/g, 'µ').replace(/[rR]/g, 'Ω').replace(/ohm/i, 'Ω');
-            
             match = v.match(/^([\d\.]+)([pPnNµmkKMgG]?)([fFhHΩωvVaAwW]?)$/);
             if (!match) return v; 
             
             let num = parseFloat(match[1]);
             let prefix = match[2];
             let unit = match[3];
-            
             if (isNaN(num)) return v;
 
-            let type = refType; // On force le type déduit de la référence par défaut
-            // Si une unité explicite est présente, on l'utilise pour déterminer le type
+            let type = refType;
             if (unit) {
                 if (unit === 'f' || unit === 'F') type = 'F';
                 else if (unit === 'h' || unit === 'H') type = 'H';
@@ -357,7 +338,6 @@
             let baseValue = num;
             let p = prefix.toLowerCase();
             let origPrefix = match[2];
-            
             if (p === 'p') baseValue *= 1e-12;
             else if (p === 'n') baseValue *= 1e-9;
             else if (p === 'µ') baseValue *= 1e-6;
@@ -368,7 +348,6 @@
 
             let absVal = Math.abs(baseValue);
             let stdNum, stdPrefix;
-
             if (type === 'F' || type === 'H') {
                 if (absVal >= 1e-6) { stdNum = baseValue / 1e-6; stdPrefix = 'µ'; }
                 else if (absVal >= 1e-9) { stdNum = baseValue / 1e-9; stdPrefix = 'n'; }
@@ -379,12 +358,9 @@
                 else if (absVal >= 1e3) { stdNum = baseValue / 1e3; stdPrefix = 'k'; }
                 else if (absVal < 1) { stdNum = baseValue / 1e-3; stdPrefix = 'm'; }
                 else { stdNum = baseValue; stdPrefix = ''; }
-            } else { 
-                return v; // Si finalement on ne sait pas quoi en faire
-            }
+            } else { return v; }
             
             let strNum = parseFloat(stdNum.toPrecision(6)).toString();
-            
             return strNum + stdPrefix + type;
         }
 
@@ -393,9 +369,7 @@
             for (const name of possibleNames) {
                 const nameLower = name.toLowerCase().trim();
                 const matchKey = rowKeys.find(k => k.trim().toLowerCase() === nameLower);
-                if (matchKey) {
-                    return row[matchKey];
-                }
+                if (matchKey) return row[matchKey];
             }
             return '';
         }
@@ -403,6 +377,44 @@
         const IconTrash = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
         const IconEdit = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
         const IconChevron = '<svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+        const IconInfo = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+        
+        function getInfoBtn(val, lcsc, mouser) {
+            const safeVal = (val || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const safeLcsc = (lcsc || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const safeMouser = (mouser || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `<button class="btn-icon" onclick="showComponentUsage('${safeVal}', '${safeLcsc}', '${safeMouser}')" title="Où est-ce utilisé ?">${IconInfo}</button>`;
+        }
+
+        async function showComponentUsage(val, lcsc, mouser) {
+            if(!db) return;
+            let query = db.from('bom_items').select('qty, devices(name)').eq('value', val);
+            if (lcsc) query = query.eq('lcsc', lcsc); else query = query.eq('lcsc', '');
+            if (mouser) query = query.eq('mouser', mouser); else query = query.eq('mouser', '');
+            
+            const { data: matches, error } = await query;
+            if(error) return console.error(error);
+            
+            const usage = {};
+            matches.forEach(m => {
+                const devName = m.devices?.name || 'N/A';
+                if(!usage[devName]) usage[devName] = 0;
+                usage[devName] += m.qty;
+            });
+            
+            let body = '';
+            if (Object.keys(usage).length === 0) {
+                body = '<p class="text-muted" style="text-align: center; padding: 20px;">Ce composant n\'est utilisé dans aucun appareil.</p>';
+            } else {
+                body = '<div style="max-height: 300px; overflow-y: auto;"><table style="margin-top:0; border:1px solid var(--border-color); border-radius:6px;"><thead><tr><th>Appareil</th><th style="text-align:right;">Quantité</th></tr></thead><tbody>';
+                for (const [devName, qty] of Object.entries(usage)) {
+                    body += `<tr><td style="padding: 10px 14px;">${devName}</td><td style="padding: 10px 14px; text-align: right; font-weight: 500;">${qty}</td></tr>`;
+                }
+                body += '</tbody></table></div>';
+            }
+            
+            openModal(`Utilisation du composant`, body, `<button class="btn" onclick="closeModal()">Fermer</button>`);
+        }
 
         // --- MODALES PERSONNALISÉES ---
         function openModal(title, bodyHtml, footerHtml) {
@@ -605,7 +617,7 @@
                         <thead><tr>
                             <th class="${bomEditStates[deviceId] ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" onchange="toggleAllBomCheckboxes(${deviceId}, this.checked)"></th>
                             <th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th>
-                            <th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th>
+                            <th class="actions-cell">Actions</th>
                         </tr></thead>
                         <tbody>
                 `;
@@ -619,9 +631,12 @@
                             <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                             <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                             <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
-                            <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
-                                <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
-                                <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
+                            <td class="actions-cell" style="text-align:right;">
+                                ${getInfoBtn(item.value, item.lcsc, item.mouser)}
+                                <span class="${bomEditStates[deviceId] ? '' : 'hidden'}">
+                                    <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
+                                    <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
+                                </span>
                             </td>
                         </tr>
                     `;
@@ -644,9 +659,7 @@
             const checkboxes = document.querySelectorAll(`input.bom-row-select[data-device="${deviceId}"]:checked`);
             const idsToDelete = Array.from(checkboxes).map(cb => parseInt(cb.value));
             
-            if (idsToDelete.length === 0) {
-                return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
-            }
+            if (idsToDelete.length === 0) return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
 
             const confirmDelete = await showCustomConfirm(
                 "Supprimer les composants", 
@@ -760,7 +773,6 @@
             const { data: items, error } = await db.from('bom_items').select('*, devices(name)').order('value');
             if(error) return console.error(error);
             
-            // Calcul des valeurs non standard
             currentNonStandardItems = [];
             const processedItems = items.map(item => {
                 const originalVal = (item.value || '').trim();
@@ -776,7 +788,6 @@
             
             const ignoredKeys = new Set(ignored.map(i => i.conflict_key));
 
-            // 1. Conflits de Réfs (Même Valeur, Réfs différentes)
             const byValue = {};
             processedItems.forEach(item => {
                 const val = normalizeValue(item.standardizedValue);
@@ -814,7 +825,6 @@
                 }
             }
 
-            // 2. Conflits de Valeurs (Même Réf, Valeurs différentes)
             const byPart = {};
             processedItems.forEach(item => {
                 const lcsc = (item.lcsc || '').trim();
@@ -832,7 +842,7 @@
                 if(itemsWithPart.length > 1) {
                     const uniqueValues = {};
                     itemsWithPart.forEach(item => {
-                        const val = item.standardizedValue; // Use standardized value for grouping
+                        const val = item.standardizedValue;
                         if(!uniqueValues[val]) {
                             uniqueValues[val] = { value: val, sources: [] };
                         }
@@ -1096,9 +1106,12 @@
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                         <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
-                        <td class="actions-cell inv-action-col ${isInventoryEditing ? '' : 'hidden'}" style="text-align:right;">
-                            <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
-                            <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
+                        <td class="actions-cell" style="text-align:right;">
+                            ${getInfoBtn(item.value, item.lcsc, item.mouser)}
+                            <span class="inv-action-col ${isInventoryEditing ? '' : 'hidden'}">
+                                <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
+                                <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
+                            </span>
                         </td>
                     </tr>
                 `;
@@ -1118,9 +1131,7 @@
             const checkboxes = document.querySelectorAll('input.inv-row-select:checked');
             const idsToDelete = Array.from(checkboxes).map(cb => parseInt(cb.value));
             
-            if (idsToDelete.length === 0) {
-                return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
-            }
+            if (idsToDelete.length === 0) return await showCustomAlert("Suppression", "Aucun composant sélectionné.");
 
             const confirmDelete = await showCustomConfirm(
                 "Supprimer les composants", 
@@ -1471,6 +1482,7 @@
                         <td><strong>${item.totalQty}</strong></td>
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
+                        <td style="width: 40px; text-align: right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                     </tr>
                 `;
             }
@@ -1538,6 +1550,7 @@
                                     <td class="${remainingMissing > 0 ? 'text-danger' : 'text-muted'}">${remainingMissing} / ${item.missingQty}</td>
                                     <td>
                                         <button class="btn btn-secondary" onclick="openSubstitutionModal('${item.key}')">Substituer</button>
+                                        ${getInfoBtn(item.value, item.lcsc, item.mouser)}
                                     </td>
                                 </tr>
                             `;
