@@ -195,7 +195,7 @@
                     <tr>
                         <th class="inv-action-col hidden" style="width: 40px;"><input type="checkbox" onchange="toggleAllInvCheckboxes(this.checked)"></th>
                         <th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Quantité</th>
-                        <th class="actions-cell">Actions</th>
+                        <th class="actions-cell inv-action-col hidden">Actions</th>
                         <th style="width: 40px;"></th>
                     </tr>
                 </thead>
@@ -395,22 +395,25 @@
 
         async function showComponentUsage(val, lcsc, mouser) {
             if(!db) return;
-            // Récupère tous les éléments avec la même valeur pour filtrer localement (gère le problème null vs "")
-            const { data: matches, error } = await db.from('bom_items')
-                .select('qty, lcsc, mouser, devices(name)')
-                .eq('value', val);
-                
+            
+            let query = db.from('bom_items').select('qty, value, lcsc, mouser, devices(name)');
+            let conditions = [];
+            if (lcsc) conditions.push('lcsc.eq.' + lcsc);
+            if (mouser) conditions.push('mouser.eq.' + mouser);
+            if (val) conditions.push('value.eq.' + val);
+            
+            if (conditions.length > 0) {
+                query = query.or(conditions.join(','));
+            } else {
+                openModal(`Utilisation du composant`, '<p class="text-muted" style="text-align: center; padding: 20px;">Aucune référence pour identifier ce composant.</p>', `<button class="btn" onclick="closeModal()">Fermer</button>`);
+                return;
+            }
+            
+            const { data: matches, error } = await query;
             if(error) return console.error(error);
             
-            // Filtrage strict en JS pour éviter les soucis de null/empty string de Supabase
-            const strictMatches = matches.filter(m => {
-                const m_lcsc = m.lcsc || '';
-                const m_mouser = m.mouser || '';
-                return m_lcsc === (lcsc || '') && m_mouser === (mouser || '');
-            });
-            
             const usage = {};
-            strictMatches.forEach(m => {
+            matches.forEach(m => {
                 const devName = m.devices?.name || 'N/A';
                 if(!usage[devName]) usage[devName] = 0;
                 usage[devName] += m.qty;
@@ -631,7 +634,7 @@
                         <thead><tr>
                             <th class="${bomEditStates[deviceId] ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" onchange="toggleAllBomCheckboxes(${deviceId}, this.checked)"></th>
                             <th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th>
-                            <th class="actions-cell">Actions</th>
+                            <th class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}">Actions</th>
                             <th style="width: 40px;"></th>
                         </tr></thead>
                         <tbody>
@@ -646,11 +649,9 @@
                             <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                             <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                             <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
-                            <td class="actions-cell" style="text-align:right;">
-                                <span class="${bomEditStates[deviceId] ? '' : 'hidden'}">
-                                    <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
-                                    <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
-                                </span>
+                            <td class="actions-cell ${bomEditStates[deviceId] ? '' : 'hidden'}" style="text-align:right;">
+                                <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
+                                <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
                             </td>
                             <td style="text-align:right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                         </tr>
@@ -1095,14 +1096,11 @@
             currentInventory = data;
             
             const tbody = document.getElementById('inventory-table-body');
-            const actionCols = document.querySelectorAll('.inv-action-col');
             const deleteBtn = document.getElementById('inv-delete-selected-btn');
             
             if(isInventoryEditing) {
-                actionCols.forEach(c => c.classList.remove('hidden'));
                 deleteBtn.classList.remove('hidden');
             } else {
-                actionCols.forEach(c => c.classList.add('hidden'));
                 deleteBtn.classList.add('hidden');
             }
 
@@ -1121,11 +1119,9 @@
                         <td>${createSupplierLink(item.lcsc, 'lcsc')}</td>
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                         <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
-                        <td class="actions-cell" style="text-align:right;">
-                            <span class="inv-action-col ${isInventoryEditing ? '' : 'hidden'}">
-                                <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
-                                <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
-                            </span>
+                        <td class="actions-cell inv-action-col ${isInventoryEditing ? '' : 'hidden'}" style="text-align:right;">
+                            <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
+                            <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
                         </td>
                         <td style="text-align:right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                     </tr>
