@@ -142,6 +142,12 @@
         }
         .conflict-info { font-size: 0.85rem; line-height: 1.4; }
         .conflict-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+        .sub-dropdown { border: 1px solid var(--border-color); border-radius: 6px; max-height: 250px; overflow-y: auto; margin-top: 4px; }
+        .sub-option { padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
+        .sub-option:last-child { border-bottom: none; }
+        .sub-option:hover { background-color: var(--surface-hover); }
+        .sub-option.selected { background-color: #eff6ff; }
     </style>
 </head>
 <body>
@@ -190,6 +196,7 @@
                         <th class="inv-action-col hidden" style="width: 40px;"><input type="checkbox" onchange="toggleAllInvCheckboxes(this.checked)"></th>
                         <th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Quantité</th>
                         <th class="actions-cell">Actions</th>
+                        <th style="width: 40px;"></th>
                     </tr>
                 </thead>
                 <tbody id="inventory-table-body"></tbody>
@@ -388,15 +395,22 @@
 
         async function showComponentUsage(val, lcsc, mouser) {
             if(!db) return;
-            let query = db.from('bom_items').select('qty, devices(name)').eq('value', val);
-            if (lcsc) query = query.eq('lcsc', lcsc); else query = query.eq('lcsc', '');
-            if (mouser) query = query.eq('mouser', mouser); else query = query.eq('mouser', '');
-            
-            const { data: matches, error } = await query;
+            // Récupère tous les éléments avec la même valeur pour filtrer localement (gère le problème null vs "")
+            const { data: matches, error } = await db.from('bom_items')
+                .select('qty, lcsc, mouser, devices(name)')
+                .eq('value', val);
+                
             if(error) return console.error(error);
             
+            // Filtrage strict en JS pour éviter les soucis de null/empty string de Supabase
+            const strictMatches = matches.filter(m => {
+                const m_lcsc = m.lcsc || '';
+                const m_mouser = m.mouser || '';
+                return m_lcsc === (lcsc || '') && m_mouser === (mouser || '');
+            });
+            
             const usage = {};
-            matches.forEach(m => {
+            strictMatches.forEach(m => {
                 const devName = m.devices?.name || 'N/A';
                 if(!usage[devName]) usage[devName] = 0;
                 usage[devName] += m.qty;
@@ -618,6 +632,7 @@
                             <th class="${bomEditStates[deviceId] ? '' : 'hidden'}" style="width: 40px;"><input type="checkbox" onchange="toggleAllBomCheckboxes(${deviceId}, this.checked)"></th>
                             <th>Réf</th><th>Valeur</th><th>Qté</th><th>LCSC</th><th>Mouser</th><th>Exclure</th>
                             <th class="actions-cell">Actions</th>
+                            <th style="width: 40px;"></th>
                         </tr></thead>
                         <tbody>
                 `;
@@ -632,12 +647,12 @@
                             <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                             <td><input type="checkbox" class="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleExclude(${item.id}, this)"></td>
                             <td class="actions-cell" style="text-align:right;">
-                                ${getInfoBtn(item.value, item.lcsc, item.mouser)}
                                 <span class="${bomEditStates[deviceId] ? '' : 'hidden'}">
                                     <button class="btn-icon" onclick="openEditBomModal(${item.id}, ${deviceId})">${IconEdit}</button>
                                     <button class="btn-icon" style="color:var(--danger);" onclick="deleteBomItem(${item.id}, ${deviceId})">${IconTrash}</button>
                                 </span>
                             </td>
+                            <td style="text-align:right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                         </tr>
                     `;
                 }
@@ -1095,7 +1110,7 @@
 
             tbody.innerHTML = '';
             if(data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center; padding: 20px;">Inventaire vide.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align:center; padding: 20px;">Inventaire vide.</td></tr>';
                 return;
             }
             for (const item of data) {
@@ -1107,12 +1122,12 @@
                         <td>${createSupplierLink(item.mouser, 'mouser')}</td>
                         <td><input type="number" class="qty-input" value="${item.qty}" onchange="updateInventoryQty(${item.id}, this.value)"></td>
                         <td class="actions-cell" style="text-align:right;">
-                            ${getInfoBtn(item.value, item.lcsc, item.mouser)}
                             <span class="inv-action-col ${isInventoryEditing ? '' : 'hidden'}">
                                 <button class="btn-icon" onclick="openEditInvModal(${item.id})">${IconEdit}</button>
                                 <button class="btn-icon" style="color:var(--danger);" onclick="deleteInventoryItem(${item.id})">${IconTrash}</button>
                             </span>
                         </td>
+                        <td style="text-align:right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                     </tr>
                 `;
             }
@@ -1150,7 +1165,7 @@
             const query = document.getElementById('inv-search').value.toLowerCase();
             const rows = document.querySelectorAll('#inventory-table-body tr');
             rows.forEach(row => {
-                if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 6) return;
+                if (row.querySelectorAll('td').length === 1 && row.querySelector('td').colSpan === 7) return;
 
                 const val = row.cells[1].textContent.toLowerCase();
                 const lcsc = row.cells[2].textContent.toLowerCase();
@@ -1533,7 +1548,7 @@
                 </div>
                 <table style="margin-top: 0; border: 1px solid var(--warning-border); background: var(--surface-color);">
                     <thead>
-                        <tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Manquant</th><th>Actions</th></tr>
+                        <tr><th>Valeur</th><th>LCSC</th><th>Mouser</th><th>Manquant</th><th>Actions</th><th style="width: 40px;"></th></tr>
                     </thead>
                     <tbody>
                         ${missingData.map(item => {
@@ -1550,8 +1565,8 @@
                                     <td class="${remainingMissing > 0 ? 'text-danger' : 'text-muted'}">${remainingMissing} / ${item.missingQty}</td>
                                     <td>
                                         <button class="btn btn-secondary" onclick="openSubstitutionModal('${item.key}')">Substituer</button>
-                                        ${getInfoBtn(item.value, item.lcsc, item.mouser)}
                                     </td>
+                                    <td style="text-align: right;">${getInfoBtn(item.value, item.lcsc, item.mouser)}</td>
                                 </tr>
                             `;
                         }).join('')}
@@ -1585,15 +1600,13 @@
                 .reduce((sum, sub) => sum + sub.subQty, 0);
             let remainingMissing = Math.max(0, missingItem.missingQty - substitutedQtyForItem);
 
-            const inventoryOptions = currentInventory.map(inv => 
-                `<option value="${inv.id}">${inv.value || '-'} ${inv.lcsc ? '(LCSC: '+inv.lcsc+')' : ''} ${inv.mouser ? '(Mouser: '+inv.mouser+')' : ''} [Stock: ${inv.qty}]</option>`
-            ).join('');
-
             const body = `
                 <p class="text-muted" style="margin-bottom: 16px;">Composant manquant : <strong>${missingItem.value}</strong> (LCSC: ${missingItem.lcsc || '-'}, Mouser: ${missingItem.mouser || '-'}).<br>Il reste <strong>${remainingMissing}</strong> à substituer.</p>
                 <div class="form-group">
-                    <label>Choisir un composant de substitution dans l'inventaire</label>
-                    <select id="sub-inv-select">${inventoryOptions}</select>
+                    <label>Rechercher un composant dans l'inventaire</label>
+                    <input type="text" id="sub-inv-search" placeholder="Tapez pour rechercher..." oninput="filterSubInvOptions()" autocomplete="off">
+                    <div id="sub-inv-dropdown" class="sub-dropdown"></div>
+                    <input type="hidden" id="sub-inv-id">
                 </div>
                 <div class="form-group">
                     <label>Quantité à substituer</label>
@@ -1602,14 +1615,58 @@
             `;
             const footer = `<button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn" onclick="confirmSubstitution('${originalKey}')">Valider la substitution</button>`;
             openModal("Substitution de composant", body, footer);
+            renderSubInvOptions();
+        }
+
+        function renderSubInvOptions(query = '') {
+            const dropdown = document.getElementById('sub-inv-dropdown');
+            const hiddenInput = document.getElementById('sub-inv-id');
+            if(!hiddenInput.value && currentInventory.length > 0) {
+                hiddenInput.value = currentInventory[0].id;
+            }
+            
+            dropdown.innerHTML = '';
+            const q = query.toLowerCase();
+            const filtered = currentInventory.filter(inv => 
+                (inv.value || '').toLowerCase().includes(q) || 
+                (inv.lcsc || '').toLowerCase().includes(q) || 
+                (inv.mouser || '').toLowerCase().includes(q)
+            );
+
+            if(filtered.length === 0) {
+                dropdown.innerHTML = '<div style="padding: 8px 12px; color: var(--text-muted); font-size: 0.85rem;">Aucun résultat</div>';
+                return;
+            }
+
+            filtered.forEach(inv => {
+                const isSelected = hiddenInput.value == inv.id.toString();
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'sub-option' + (isSelected ? ' selected' : '');
+                itemDiv.innerHTML = `
+                    <div>
+                        <strong>${inv.value || '-'}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">${inv.lcsc ? '(LCSC: '+inv.lcsc+')' : ''} ${inv.mouser ? '(Mouser: '+inv.mouser+')' : ''}</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">Stock: ${inv.qty}</span>
+                `;
+                itemDiv.onclick = () => {
+                    hiddenInput.value = inv.id;
+                    document.getElementById('sub-inv-search').value = `${inv.value || '-'} ${inv.lcsc ? '(LCSC: '+inv.lcsc+')' : ''} ${inv.mouser ? '(Mouser: '+inv.mouser+')' : ''} [Stock: ${inv.qty}]`;
+                    renderSubInvOptions(document.getElementById('sub-inv-search').value);
+                };
+                dropdown.appendChild(itemDiv);
+            });
+        }
+
+        function filterSubInvOptions() {
+            renderSubInvOptions(document.getElementById('sub-inv-search').value);
         }
 
         async function confirmSubstitution(originalKey) {
-            const select = document.getElementById('sub-inv-select');
-            const invId = parseInt(select.value);
+            const invId = parseInt(document.getElementById('sub-inv-id').value);
             const qty = parseInt(document.getElementById('sub-qty').value) || 0;
 
-            if(qty <= 0) return await showCustomAlert("Substitution", "La quantité doit être supérieure à 0.");
+            if (isNaN(invId)) return await showCustomAlert("Substitution", "Veuillez sélectionner un composant de substitution.");
+            if (qty <= 0) return await showCustomAlert("Substitution", "La quantité doit être supérieure à 0.");
 
             const invItem = currentInventory.find(i => i.id === invId);
             const missingItem = missingData.find(m => m.key === originalKey);
