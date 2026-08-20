@@ -403,23 +403,33 @@
         async function showComponentUsage(val, lcsc, mouser) {
             if(!db) return;
             
-            // On récupère tous les éléments qui ont la même valeur pour filtrer en local
-            // Cela évite les soucis de null/empty string de Supabase
-            const { data: matches, error } = await db.from('bom_items')
-                .select('qty, lcsc, mouser, devices(name)')
-                .eq('value', val || '');
-                
+            let query = db.from('bom_items').select('qty, value, lcsc, mouser, devices(name)');
+            
+            // Requête dynamique pour éviter les problèmes de chaînes vides
+            let hasFilter = false;
+            if (lcsc) {
+                query = query.eq('lcsc', lcsc);
+                hasFilter = true;
+            }
+            if (mouser) {
+                query = query.eq('mouser', mouser);
+                hasFilter = true;
+            }
+            if (!hasFilter && val) {
+                query = query.eq('value', val);
+                hasFilter = true;
+            }
+            
+            if (!hasFilter) {
+                openModal(`Utilisation du composant`, '<p class="text-muted" style="text-align: center; padding: 20px;">Aucune référence pour identifier ce composant.</p>', `<button class="btn" onclick="closeModal()">Fermer</button>`);
+                return;
+            }
+            
+            const { data: matches, error } = await query;
             if(error) return console.error(error);
             
-            // Filtrage strict en JS
-            const strictMatches = matches.filter(m => {
-                const m_lcsc = m.lcsc || '';
-                const m_mouser = m.mouser || '';
-                return m_lcsc === (lcsc || '') && m_mouser === (mouser || '');
-            });
-            
             const usage = {};
-            strictMatches.forEach(m => {
+            matches.forEach(m => {
                 const devName = m.devices?.name || 'N/A';
                 if(!usage[devName]) usage[devName] = 0;
                 usage[devName] += m.qty;
